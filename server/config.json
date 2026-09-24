@@ -1,0 +1,19 @@
+{
+  "parse_interval_minutes": 30,
+  "max_articles": 200,
+  "posts_per_fetch": 8,
+  "pikabu_best_url": "https://pikabu.ru/best",
+  "pikabu_themes_url": "https://pikabu.ru/themes",
+  "pikabu_base_url": "https://pikabu.ru",
+  "theme_cache_ttl_sec": 300,
+  "excluded_themes": [],
+  "autostart_parsing": true,
+  "database_path": "server/data/pikabu.db",
+  "summaries_dir": "server/data/summaries",
+  "parse_timeout_sec": 20,
+  "request_delay_sec": 1.0,
+  "chat_max_iterations": 5,
+  "chat_history_limit": 20,
+  "chat_rate_limit_per_minute": 20,
+  "chat_max_message_chars": 4000
+}
