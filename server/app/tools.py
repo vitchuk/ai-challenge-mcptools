@@ -225,6 +225,37 @@ def save_last_summary(format: str = "json") -> dict:
     return _save_last_summary(format)
 
 
+def clear_summaries() -> int:
+    """Удаляет все сохранённые саммари и сбрасывает «последний саммари». Возвращает число файлов."""
+    global _last_summary
+    settings = get_settings()
+    removed = 0
+    if settings.summaries_dir.is_dir():
+        for path in sorted(settings.summaries_dir.glob("summary_*")):
+            if path.is_file():
+                path.unlink()
+                removed += 1
+    _last_summary = None
+    return removed
+
+
+def get_latest_summary() -> dict:
+    """Самый свежий сохранённый саммари (JSON) для отображения в клиенте."""
+    settings = get_settings()
+    if not settings.summaries_dir.is_dir():
+        return {"exists": False, "file": None, "summary": None}
+    files = [path for path in settings.summaries_dir.glob("summary_*.json") if path.is_file()]
+    if not files:
+        return {"exists": False, "file": None, "summary": None}
+    latest = max(files, key=lambda path: (path.name, path.stat().st_mtime))
+    try:
+        data = json.loads(latest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.warning("Не удалось прочитать саммари %s", latest.name)
+        return {"exists": False, "file": None, "summary": None}
+    return {"exists": True, "file": latest.name, "summary": data}
+
+
 async def start_parsing_pikabu() -> str:
     return _json(scheduler.start_scheduler())
 

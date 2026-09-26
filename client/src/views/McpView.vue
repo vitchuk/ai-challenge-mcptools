@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api'
+import { bumpDataVersion } from '../store'
 import type { AppConfig, AppStatus, ThemeInfo, ToolInfo } from '../types'
 
 const status = ref<AppStatus | null>(null)
@@ -8,7 +9,8 @@ const config = ref<AppConfig | null>(null)
 const tools = ref<ToolInfo[]>([])
 const themes = ref<ThemeInfo[]>([])
 const error = ref<string | null>(null)
-const busy = ref<'start' | 'stop' | 'run' | null>(null)
+const notice = ref<string | null>(null)
+const busy = ref<'start' | 'stop' | 'run' | 'clear' | null>(null)
 let timer: number | undefined
 
 const coreTools = computed(() => tools.value.filter((tool) => !tool.name.startsWith('get_theme_')))
@@ -46,10 +48,28 @@ async function loadStatic() {
 
 async function action(kind: 'start' | 'stop' | 'run') {
   busy.value = kind
+  notice.value = null
   try {
     if (kind === 'start') await api.startParsing()
     if (kind === 'stop') await api.stopParsing()
     if (kind === 'run') await api.runNow()
+    await refresh()
+  } catch (err) {
+    error.value = message(err)
+  } finally {
+    busy.value = null
+  }
+}
+
+async function clearData() {
+  if (!window.confirm('Удалить все статьи из БД и все саммари? Действие необратимо.')) return
+  busy.value = 'clear'
+  error.value = null
+  notice.value = null
+  try {
+    const result = await api.clearData()
+    bumpDataVersion(0)
+    notice.value = `Данные очищены: статей ${result.cleared_articles}, саммари ${result.cleared_summaries}`
     await refresh()
   } catch (err) {
     error.value = message(err)
@@ -189,7 +209,19 @@ onUnmounted(() => {
           >
             {{ busy === 'run' ? 'Парсим…' : 'Спарсить сейчас' }}
           </button>
+          <button
+            type="button"
+            :disabled="busy !== null"
+            class="rounded-lg border border-amber-800 px-3 py-2 text-sm text-amber-300 transition hover:border-amber-500 hover:text-amber-200 disabled:opacity-40"
+            @click="clearData"
+          >
+            {{ busy === 'clear' ? 'Очистка…' : 'Очистить данные' }}
+          </button>
         </div>
+
+        <p v-if="notice" class="mt-3 rounded border border-emerald-900/60 bg-emerald-950/30 px-2 py-1 text-xs text-emerald-200">
+          {{ notice }}
+        </p>
 
         <dl class="mt-4 flex flex-col gap-1 text-xs text-slate-400">
           <div class="flex justify-between gap-2">

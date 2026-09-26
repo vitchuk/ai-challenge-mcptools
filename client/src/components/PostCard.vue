@@ -39,9 +39,14 @@ function formatDate(iso: string | null): string {
       <img v-if="image" :src="image" alt="" loading="lazy" class="h-44 w-full object-cover" />
       <div
         v-else
-        class="flex h-24 w-full items-center justify-center bg-slate-800 text-xs font-medium tracking-wide text-slate-400"
+        role="img"
+        aria-label="Видео"
+        class="flex h-24 w-full items-center justify-center bg-slate-800 text-slate-400"
       >
-        Видео
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-9 w-9" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M10 8.5l6 3.5-6 3.5z" fill="currentColor" stroke="none" />
+        </svg>
       </div>
     </a>
 

@@ -155,6 +155,18 @@ def next_run_at() -> str | None:
     return job.next_run_time.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
+def reset_parse_stats() -> None:
+    """Сбрасывает статистику парсинга/саммари после очистки данных (cron не трогаем)."""
+    _state.update(
+        {
+            "last_parsed_count": None,
+            "new_articles_last_run": None,
+            "last_summary_file": None,
+            "last_summary_error": None,
+        }
+    )
+
+
 def status() -> dict:
     settings = get_settings()
     return {

@@ -3,6 +3,8 @@ import type {
   AppStatus,
   ArticlesResponse,
   ChatResponse,
+  ClearDataResponse,
+  LatestSummaryResponse,
   ParsingStatus,
   ThemesResponse,
   ToolsResponse,
@@ -44,6 +46,8 @@ export const api = {
   startParsing: () => request<ParsingStatus>('/api/parsing/start', { method: 'POST' }),
   stopParsing: () => request<ParsingStatus>('/api/parsing/stop', { method: 'POST' }),
   runNow: () => request<Record<string, unknown>>('/api/parsing/run-now', { method: 'POST' }),
+  clearData: () => request<ClearDataResponse>('/api/parsing/clear-data', { method: 'POST' }),
+  getLatestSummary: () => request<LatestSummaryResponse>('/api/summary/latest'),
   sendChat: (message: string) =>
     request<ChatResponse>('/api/chat', {
       method: 'POST',

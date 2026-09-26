@@ -53,6 +53,14 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
   `parsing.last_summary_error`).
 - Лента `/best` — это уже «лучшее за сегодня»; `parser.fetch_best` дополнительно
   отбрасывает посты старше `max_post_age_hours`.
+- Очистка данных: `POST /api/parsing/clear-data` = `db.clear_articles` +
+  `tools.clear_summaries` (файлы `summary_*` + сброс `_last_summary`) +
+  `scheduler.reset_parse_stats`. Клиент синхронизирует вкладки через общий стор
+  `client/src/store.ts` (`dataVersion`): после очистки во вкладке «Чат» исчезают
+  карточки и блок «Саммари», появляется заглушка с таймером.
+- Вкладка «Чат» сама не триггерит парсинг: она показывает обратный отсчёт до
+  `parsing.next_run_at` и вейтер «выполняется парсинг», опрашивая `/api/status`;
+  карточки подгружаются, когда `articles_count > 0`.
 - MCP-сервер — `mcp.server.mcpserver.MCPServer` (это MCP SDK **v2**; в v1 класс
   назывался `FastMCP`). Не импортируйте `mcp.server.fastmcp` — в v2 он выбрасывает
   ошибку. Роут `/mcp` добавляется в FastAPI в `main.create_app()`.
@@ -88,9 +96,12 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
 3. При наличии `DEEPSEEK_API_KEY` после парсинга в `server/data/summaries/` должен
    появиться `summary_*.json`, а в `/api/status` — `parsing.last_summary_file`.
 4. Кнопки/эндпоинты start/stop отражаются в `parsing.running`.
-5. MCP: подключиться клиентом к `/mcp`, вызвать `list_tools` и `call_tool`.
-6. Клиент: `npm run build` без ошибок типизации; чат `/tools` показывает 28 тулов.
-7. Для живого чата нужен `DEEPSEEK_API_KEY` в `.env` (без него возвращается
+5. `POST /api/parsing/clear-data` обнуляет `articles_count`, `summary/latest`
+   отдаёт `exists:false`, а `last_summary_file`/`last_parsed_count` сбрасываются;
+   во вкладке «Чат» появляется заглушка с таймером.
+6. MCP: подключиться клиентом к `/mcp`, вызвать `list_tools` и `call_tool`.
+7. Клиент: `npm run build` без ошибок типизации; чат `/tools` показывает 28 тулов.
+8. Для живого чата нужен `DEEPSEEK_API_KEY` в `.env` (без него возвращается
    понятная ошибка `llm_not_configured`).
 
 ## Git

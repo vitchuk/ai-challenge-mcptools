@@ -85,6 +85,21 @@ async def run_parsing_now() -> dict:
     return await scheduler.parse_now()
 
 
+@router.post("/parsing/clear-data")
+async def clear_data() -> dict:
+    """Удаляет все статьи из БД и все сохранённые саммари."""
+    cleared_articles = db.clear_articles()
+    cleared_summaries = tools.clear_summaries()
+    scheduler.reset_parse_stats()
+    logger.info("Очистка данных: статей %s, саммари %s", cleared_articles, cleared_summaries)
+    return {"cleared_articles": cleared_articles, "cleared_summaries": cleared_summaries}
+
+
+@router.get("/summary/latest")
+async def latest_summary() -> dict:
+    return tools.get_latest_summary()
+
+
 @router.post("/chat")
 async def post_chat(
     payload: ChatRequest,

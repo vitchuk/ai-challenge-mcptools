@@ -130,9 +130,12 @@ const blocks = computed<Block[]>(() => {
           :href="block.href"
           target="_blank"
           rel="noopener noreferrer"
-          class="mt-2 flex h-20 items-center justify-center rounded bg-slate-800 text-xs text-slate-400"
+          class="mt-2 flex h-20 items-center justify-center rounded bg-slate-800 text-slate-400"
         >
-          Видео
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-7 w-7" fill="none" stroke="currentColor" stroke-width="1.5" aria-label="Видео" role="img">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M10 8.5l6 3.5-6 3.5z" fill="currentColor" stroke="none" />
+          </svg>
         </a>
         <p v-if="block.meta" class="mt-1 text-xs text-slate-400">{{ block.meta }}</p>
       </div>

@@ -182,6 +182,13 @@ def get_story_ids() -> set[int]:
     return {int(row[0]) for row in rows}
 
 
+def clear_articles() -> int:
+    """Удаляет все статьи из базы. Возвращает количество удалённых."""
+    with _lock, _connect() as conn:
+        cursor = conn.execute("DELETE FROM articles")
+        return int(cursor.rowcount)
+
+
 def last_parsed_at() -> str | None:
     with _lock, _connect() as conn:
         row = conn.execute("SELECT MAX(parsed_at) FROM articles").fetchone()

@@ -91,6 +91,26 @@ export interface ArticlesResponse {
   articles: Post[]
 }
 
+export interface SummaryData {
+  title: string
+  summary: string
+  images: string[]
+  videos: string[]
+  source_count: number
+  created_at: string
+}
+
+export interface LatestSummaryResponse {
+  exists: boolean
+  file: string | null
+  summary: SummaryData | null
+}
+
+export interface ClearDataResponse {
+  cleared_articles: number
+  cleared_summaries: number
+}
+
 export interface ToolsResponse {
   count: number
   tools: ToolInfo[]
@@ -102,14 +122,13 @@ export interface ThemesResponse {
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system'
-export type MessageKind = 'text' | 'articles' | 'tools'
+export type MessageKind = 'text' | 'tools'
 
 export interface ChatMessage {
   id: number
   role: MessageRole
   kind: MessageKind
   text: string
-  articles?: Post[]
   tools?: ToolInfo[]
   toolCalls?: ToolCallEvent[]
   error?: boolean
