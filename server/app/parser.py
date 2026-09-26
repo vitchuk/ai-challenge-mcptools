@@ -53,7 +53,7 @@ async def fetch_html(url: str, *, retries: int = 2) -> str:
             except httpx.HTTPError as exc:  # сетевые ошибки, таймауты
                 last_error = exc
             if attempt < retries:
-                await asyncio.sleep(1.5 * (attempt + 1))
+                await asyncio.sleep(settings.request_delay_sec * (attempt + 1))
     raise ParserError(f"Не удалось загрузить {url}: {last_error}")
 
 
@@ -169,15 +169,32 @@ def parse_stories(html: str, base_url: str) -> list[dict]:
 
 
 async def fetch_best(limit: int | None = None) -> list[dict]:
-    """Загружает ленту /best. limit — максимум статей за один запрос."""
+    """Загружает ленту /best («лучшее за сегодня») и отбрасывает посты старше N часов."""
     settings = get_settings()
     html = await fetch_html(settings.pikabu_best_url)
     stories = parse_stories(html, settings.pikabu_base_url)
+    stories = [story for story in stories if _is_recent(story.get("published_at"), settings.max_post_age_hours)]
     if limit:
         stories = stories[:limit]
     if not stories:
-        raise ParserError("Страница /best загружена, но статьи не найдены")
+        raise ParserError(
+            f"Страница /best загружена, но нет постов свежее {settings.max_post_age_hours} ч"
+        )
     return stories
+
+
+def _is_recent(published_at: str | None, max_age_hours: int) -> bool:
+    """Страховка «за сегодня»: отбрасываем посты старше max_age_hours (если дата известна)."""
+    if not published_at:
+        return True
+    try:
+        published = datetime.fromisoformat(published_at)
+    except ValueError:
+        return True
+    if published.tzinfo is None:
+        published = published.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - published
+    return age.total_seconds() <= max_age_hours * 3600
 
 
 async def fetch_theme(slug: str, limit: int = 20, use_cache: bool = True) -> list[dict]:

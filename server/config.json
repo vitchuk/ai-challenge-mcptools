@@ -1,6 +1,6 @@
 {
   "parse_interval_minutes": 30,
-  "max_articles": 200,
+  "max_articles": 10,
   "posts_per_fetch": 8,
   "pikabu_best_url": "https://pikabu.ru/best",
   "pikabu_themes_url": "https://pikabu.ru/themes",
@@ -8,6 +8,8 @@
   "theme_cache_ttl_sec": 300,
   "excluded_themes": [],
   "autostart_parsing": true,
+  "max_post_age_hours": 48,
+  "auto_summary_after_parse": true,
   "database_path": "server/data/pikabu.db",
   "summaries_dir": "server/data/summaries",
   "parse_timeout_sec": 20,

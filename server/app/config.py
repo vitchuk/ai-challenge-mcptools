@@ -44,6 +44,8 @@ class Settings:
     theme_cache_ttl_sec: int
     excluded_themes: list[str]
     autostart_parsing: bool
+    max_post_age_hours: int
+    auto_summary_after_parse: bool
     parse_timeout_sec: float
     request_delay_sec: float
 
@@ -68,6 +70,8 @@ class Settings:
             "theme_cache_ttl_sec": self.theme_cache_ttl_sec,
             "excluded_themes": self.excluded_themes,
             "autostart_parsing": self.autostart_parsing,
+            "max_post_age_hours": self.max_post_age_hours,
+            "auto_summary_after_parse": self.auto_summary_after_parse,
             "model": self.deepseek_model,
             "llm_configured": bool(self.deepseek_api_key),
             "chat_max_iterations": self.chat_max_iterations,
@@ -105,6 +109,8 @@ def get_settings() -> Settings:
         theme_cache_ttl_sec=int(raw.get("theme_cache_ttl_sec", 300)),
         excluded_themes=list(raw.get("excluded_themes", [])),
         autostart_parsing=bool(raw.get("autostart_parsing", True)),
+        max_post_age_hours=int(raw.get("max_post_age_hours", 48)),
+        auto_summary_after_parse=bool(raw.get("auto_summary_after_parse", True)),
         parse_timeout_sec=float(raw.get("parse_timeout_sec", 20)),
         request_delay_sec=float(raw.get("request_delay_sec", 1.0)),
         chat_max_iterations=int(raw.get("chat_max_iterations", 5)),

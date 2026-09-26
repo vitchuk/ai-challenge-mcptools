@@ -1,0 +1,141 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import type { Post } from '../types'
+
+const props = defineProps<{ text: string; posts: Record<string, Post> }>()
+
+interface Segment {
+  text: string
+  bold?: boolean
+  href?: string
+}
+
+interface Block {
+  kind: 'text' | 'post' | 'space'
+  segments?: Segment[]
+  title?: string
+  href?: string
+  meta?: string
+  mediaImage?: string | null
+  mediaVideo?: boolean
+}
+
+const STORY_LINK_RE = /\[([^\]]+)\]\((https?:\/\/pikabu\.ru\/story\/[^\s)]+)\)/
+const INLINE_RE = /\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*/g
+
+function parseInline(text: string): Segment[] {
+  const segments: Segment[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  INLINE_RE.lastIndex = 0
+  while ((match = INLINE_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ text: text.slice(lastIndex, match.index) })
+    }
+    if (match[1] !== undefined && match[2] !== undefined) {
+      segments.push({ text: match[1], href: match[2] })
+    } else if (match[3] !== undefined) {
+      segments.push({ text: match[3], bold: true })
+    }
+    lastIndex = INLINE_RE.lastIndex
+  }
+  if (lastIndex < text.length) {
+    segments.push({ text: text.slice(lastIndex) })
+  }
+  return segments.filter((segment) => segment.text.length > 0)
+}
+
+function cleanMeta(line: string, titleMatch: RegExpExecArray | null): string {
+  let meta = line
+  if (titleMatch) meta = meta.replace(titleMatch[0], ' ')
+  meta = meta.replace(/\[[^\]]*\]\([^)]*\)/g, ' ')
+  meta = meta.replace(/\*\*/g, ' ')
+  meta = meta.replace(/[·•]/g, ' · ')
+  meta = meta.replace(/(·\s*){2,}/g, '· ')
+  meta = meta.replace(/\s{2,}/g, ' ')
+  return meta.replace(/^[\s·—–-]+/, '').replace(/[\s·—–-]+$/, '').trim()
+}
+
+const blocks = computed<Block[]>(() => {
+  const result: Block[] = []
+  for (const raw of props.text.split('\n')) {
+    const line = raw.trim()
+    if (!line) {
+      result.push({ kind: 'space' })
+      continue
+    }
+    const storyMatch = STORY_LINK_RE.exec(line)
+    if (storyMatch) {
+      const href = storyMatch[2]
+      const boldMatch = /\*\*([^*]+)\*\*/.exec(line)
+      const post = props.posts[href]
+      const image = post?.images?.[0] ?? null
+      result.push({
+        kind: 'post',
+        title: boldMatch ? boldMatch[1] : storyMatch[1],
+        href,
+        meta: cleanMeta(line, boldMatch),
+        mediaImage: image,
+        mediaVideo: image === null && (post?.videos?.length ?? 0) > 0,
+      })
+    } else {
+      result.push({ kind: 'text', segments: parseInline(line) })
+    }
+  }
+  return result
+})
+</script>
+
+<template>
+  <div class="space-y-1">
+    <template v-for="(block, index) in blocks" :key="index">
+      <div v-if="block.kind === 'space'" class="h-2" />
+
+      <p v-else-if="block.kind === 'text'" class="text-sm leading-relaxed text-slate-100">
+        <template v-for="(segment, segIndex) in block.segments" :key="segIndex">
+          <a
+            v-if="segment.href"
+            :href="segment.href"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-indigo-300 hover:text-indigo-200"
+          >
+            {{ segment.text }}
+          </a>
+          <strong v-else-if="segment.bold" class="font-semibold text-slate-100">{{ segment.text }}</strong>
+          <span v-else>{{ segment.text }}</span>
+        </template>
+      </p>
+
+      <div v-else class="rounded-lg border border-slate-800 bg-slate-900/60 p-2">
+        <a
+          :href="block.href"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-sm font-medium text-indigo-300 hover:text-indigo-200"
+        >
+          {{ block.title }}
+        </a>
+        <a
+          v-if="block.mediaImage"
+          :href="block.href"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="mt-2 block"
+        >
+          <img :src="block.mediaImage" alt="" loading="lazy" class="max-h-48 w-full rounded object-cover" />
+        </a>
+        <a
+          v-else-if="block.mediaVideo"
+          :href="block.href"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="mt-2 flex h-20 items-center justify-center rounded bg-slate-800 text-xs text-slate-400"
+        >
+          Видео
+        </a>
+        <p v-if="block.meta" class="mt-1 text-xs text-slate-400">{{ block.meta }}</p>
+      </div>
+    </template>
+  </div>
+</template>

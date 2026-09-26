@@ -17,6 +17,7 @@ export interface Post {
 export interface ToolInfo {
   name: string
   description: string
+  short_description?: string | null
   parameters: Record<string, unknown>
 }
 
@@ -32,6 +33,9 @@ export interface ParsingStatus {
   last_run_at: string | null
   last_error: string | null
   last_parsed_count: number | null
+  new_articles_last_run: number | null
+  last_summary_file: string | null
+  last_summary_error: string | null
   total_runs: number
 }
 
@@ -60,6 +64,8 @@ export interface AppConfig {
   theme_cache_ttl_sec: number
   excluded_themes: string[]
   autostart_parsing: boolean
+  max_post_age_hours: number
+  auto_summary_after_parse: boolean
   model: string
   llm_configured: boolean
   chat_max_iterations: number
@@ -71,6 +77,7 @@ export interface ToolCallEvent {
   name: string
   arguments: Record<string, unknown>
   result_preview: string
+  result?: string
 }
 
 export interface ChatResponse {

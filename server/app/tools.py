@@ -20,10 +20,17 @@ REGISTRY: dict[str, dict[str, Any]] = {}
 _last_summary: dict | None = None
 
 
-def _register(name: str, description: str, parameters: dict, fn: ToolCallable) -> None:
+def _register(
+    name: str,
+    description: str,
+    parameters: dict,
+    fn: ToolCallable,
+    short_description: str | None = None,
+) -> None:
     REGISTRY[name] = {
         "name": name,
         "description": description,
+        "short_description": short_description,
         "parameters": parameters,
         "callable": fn,
     }
@@ -78,7 +85,6 @@ async def get_saved_articles(limit: int = 20) -> str:
 
 async def summarize_best_posts(count: int = 10) -> str:
     """Саммари последних N статей из /best."""
-    global _last_summary
     count = max(1, min(int(count), 50))
     articles = db.get_articles_for_summary(count)
     if not articles:
@@ -88,36 +94,41 @@ async def summarize_best_posts(count: int = 10) -> str:
                 "hint": "Запустите парсинг (тул start_parsing_pikabu или кнопка в UI).",
             }
         )
+    try:
+        summary = await _summarize_articles(articles)
+    except deepseek.LLMError as exc:
+        return _json({"error": str(exc)})
+    return _json(summary)
 
+
+def _build_prompt(articles: list[dict]) -> tuple[str, str]:
     blocks = []
     for index, article in enumerate(articles, start=1):
-        block = (
+        blocks.append(
             f"{index}. {article['title']}\n"
             f"   Автор: {article.get('author') or '—'}; тема: {article.get('theme') or '—'}; "
             f"рейтинг: {article.get('rating')}; комментарии: {article.get('comments_count')}\n"
             f"   URL: {article.get('url')}\n"
             f"   Текст: {article.get('body_text') or '(без текста)'}"
         )
-        blocks.append(block)
-
     system_prompt = (
         "Ты — редактор дайджеста постов Pikabu. По списку постов сделай краткое саммари. "
         "Отвечай строго в формате JSON без пояснений и без markdown-обёртки: "
         '{"title": "краткий цепляющий заголовок дайджеста", "summary": "связный текст саммари на русском"}'
     )
     user_prompt = (
-        f"Вот {len(articles)} последних постов категории /best. Сделай дайджест:\n\n"
-        + "\n\n".join(blocks)
+        f"Вот {len(articles)} постов категории /best. Сделай дайджест:\n\n" + "\n\n".join(blocks)
     )
+    return system_prompt, user_prompt
 
-    try:
-        raw = await deepseek.complete_text(system_prompt, user_prompt, temperature=0.4, max_tokens=2500)
-    except deepseek.LLMError as exc:
-        return _json({"error": str(exc)})
 
+async def _summarize_articles(articles: list[dict]) -> dict:
+    """Делает саммари переданных статей через LLM и запоминает результат как «последний саммари»."""
+    global _last_summary
+    system_prompt, user_prompt = _build_prompt(articles)
+    raw = await deepseek.complete_text(system_prompt, user_prompt, temperature=0.4, max_tokens=2500)
     title, summary = _parse_summary(raw, fallback_title=articles[0]["title"])
     images, videos = _collect_media(articles)
-
     _last_summary = {
         "title": title,
         "summary": summary,
@@ -126,7 +137,12 @@ async def summarize_best_posts(count: int = 10) -> str:
         "source_count": len(articles),
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
-    return _json(_last_summary)
+    return _last_summary
+
+
+async def summarize_articles(articles: list[dict]) -> dict:
+    """Публичная обёртка для автосаммари после парсинга (используется планировщиком)."""
+    return await _summarize_articles(articles)
 
 
 def _parse_summary(raw: str, *, fallback_title: str) -> tuple[str, str]:
@@ -147,16 +163,25 @@ def _parse_summary(raw: str, *, fallback_title: str) -> tuple[str, str]:
 
 async def save_summary(format: str = "txt") -> str:
     """Сохраняет последний результат саммаризации в .txt или .json."""
-    fmt = (format or "txt").strip().lower()
-    if fmt not in ("txt", "json"):
-        return _json({"error": "Недопустимый формат. Используйте 'txt' или 'json'."})
-    if _last_summary is None:
+    if (_last_summary is None):
         return _json(
             {
                 "error": "Нет результата саммаризации для сохранения.",
                 "hint": "Сначала вызовите тул summarize_best_posts.",
             }
         )
+    try:
+        return _json(_save_last_summary(format))
+    except ValueError as exc:
+        return _json({"error": str(exc)})
+
+
+def _save_last_summary(format: str) -> dict:
+    fmt = (format or "txt").strip().lower()
+    if fmt not in ("txt", "json"):
+        raise ValueError("Недопустимый формат. Используйте 'txt' или 'json'.")
+    if _last_summary is None:
+        raise ValueError("Нет результата саммаризации для сохранения.")
 
     settings = get_settings()
     settings.summaries_dir.mkdir(parents=True, exist_ok=True)
@@ -186,15 +211,18 @@ async def save_summary(format: str = "txt") -> str:
         content = "\n".join(lines)
 
     path.write_text(content, encoding="utf-8")
-    return _json(
-        {
-            "saved": True,
-            "format": fmt,
-            "file": str(path.relative_to(ROOT_DIR)) if path.is_relative_to(ROOT_DIR) else filename,
-            "absolute_path": str(path),
-            "bytes": len(content.encode("utf-8")),
-        }
-    )
+    return {
+        "saved": True,
+        "format": fmt,
+        "file": str(path.relative_to(ROOT_DIR)) if path.is_relative_to(ROOT_DIR) else filename,
+        "absolute_path": str(path),
+        "bytes": len(content.encode("utf-8")),
+    }
+
+
+def save_last_summary(format: str = "json") -> dict:
+    """Публичная обёртка для автосохранения саммари (используется планировщиком)."""
+    return _save_last_summary(format)
 
 
 async def start_parsing_pikabu() -> str:
@@ -311,6 +339,7 @@ def register_theme_tools(themes: list[dict]) -> None:
                 "required": [],
             },
             _make_theme_tool(slug, title),
+            short_description=f"Посты темы «{title}»",
         )
 
 
@@ -343,7 +372,12 @@ def openai_tools_schema() -> list[dict]:
 def tools_info() -> list[dict]:
     """Метаданные тулов для веб-клиента (/api/tools, команда /tools)."""
     return [
-        {"name": entry["name"], "description": entry["description"], "parameters": entry["parameters"]}
+        {
+            "name": entry["name"],
+            "description": entry["description"],
+            "short_description": entry.get("short_description"),
+            "parameters": entry["parameters"],
+        }
         for entry in REGISTRY.values()
     ]
 

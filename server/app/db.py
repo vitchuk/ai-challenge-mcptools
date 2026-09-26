@@ -175,6 +175,13 @@ def count_articles() -> int:
         return int(conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0])
 
 
+def get_story_ids() -> set[int]:
+    """Множество story_id, уже сохранённых в базе (для поиска новых постов)."""
+    with _lock, _connect() as conn:
+        rows = conn.execute("SELECT story_id FROM articles").fetchall()
+    return {int(row[0]) for row in rows}
+
+
 def last_parsed_at() -> str | None:
     with _lock, _connect() as conn:
         row = conn.execute("SELECT MAX(parsed_at) FROM articles").fetchone()

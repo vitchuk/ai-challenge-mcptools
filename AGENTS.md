@@ -46,6 +46,13 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
   и регистрация в MCP (`mcp_server.register_tools`), и схемы для LLM
   (`tools.openai_tools_schema`). Новый тул добавляется в `tools.py` и попадает
   сразу в оба места; дублировать описания не нужно.
+- **Саммаризация переиспользуется**: `tools._summarize_articles`/`save_last_summary`
+  вызываются и тулами (`summarize_best_posts`, `save_summary`), и планировщиком
+  (`scheduler._auto_summary`) после каждого парсинга. Автосаммари пишет JSON в
+  `summaries_dir` для новых story_id; ошибки LLM не ломают парсинг (пишутся в
+  `parsing.last_summary_error`).
+- Лента `/best` — это уже «лучшее за сегодня»; `parser.fetch_best` дополнительно
+  отбрасывает посты старше `max_post_age_hours`.
 - MCP-сервер — `mcp.server.mcpserver.MCPServer` (это MCP SDK **v2**; в v1 класс
   назывался `FastMCP`). Не импортируйте `mcp.server.fastmcp` — в v2 он выбрасывает
   ошибку. Роут `/mcp` добавляется в FastAPI в `main.create_app()`.
@@ -78,10 +85,12 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
 
 1. Запустить сервер и проверить `GET /api/status`, `/api/tools`, `/api/articles`.
 2. `POST /api/parsing/run-now` — в БД должно появиться 8 новых постов.
-3. Кнопки/эндпоинты start/stop отражаются в `parsing.running`.
-4. MCP: подключиться клиентом к `/mcp`, вызвать `list_tools` и `call_tool`.
-5. Клиент: `npm run build` без ошибок типизации; чат `/tools` показывает 28 тулов.
-6. Для живого чата нужен `DEEPSEEK_API_KEY` в `.env` (без него возвращается
+3. При наличии `DEEPSEEK_API_KEY` после парсинга в `server/data/summaries/` должен
+   появиться `summary_*.json`, а в `/api/status` — `parsing.last_summary_file`.
+4. Кнопки/эндпоинты start/stop отражаются в `parsing.running`.
+5. MCP: подключиться клиентом к `/mcp`, вызвать `list_tools` и `call_tool`.
+6. Клиент: `npm run build` без ошибок типизации; чат `/tools` показывает 28 тулов.
+7. Для живого чата нужен `DEEPSEEK_API_KEY` в `.env` (без него возвращается
    понятная ошибка `llm_not_configured`).
 
 ## Git
