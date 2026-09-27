@@ -259,6 +259,28 @@ class MCPManager:
             info.extend(server.tools_info())
         return info
 
+    def clear_output_dirs(self) -> int:
+        """Очищает содержимое output-папок внешних MCP-серверов (mcp_output).
+
+        Сама папка остаётся — она передана запущенному процессу как --output-dir.
+        Возвращает число удалённых объектов.
+        """
+        removed = 0
+        for server in self._servers.values():
+            directory = server.output_dir
+            if directory is None or not directory.is_dir():
+                continue
+            for path in sorted(directory.iterdir()):
+                try:
+                    if path.is_dir():
+                        shutil.rmtree(path)
+                    else:
+                        path.unlink()
+                    removed += 1
+                except OSError as exc:
+                    logger.warning("Не удалось удалить %s: %s", path, exc)
+        return removed
+
     def screenshot_flow_hint(self) -> str | None:
         """Подсказка промпта про сценарий «саммари + скриншоты» для подключённых серверов."""
         for server in self._servers.values():

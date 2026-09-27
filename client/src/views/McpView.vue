@@ -93,14 +93,15 @@ async function action(kind: 'start' | 'stop' | 'run') {
 }
 
 async function clearData() {
-  if (!window.confirm('Удалить все статьи из БД и все саммари? Действие необратимо.')) return
+  if (!window.confirm('Удалить все статьи из БД, все саммари и файлы вывода MCP-серверов? Действие необратимо.')) return
   busy.value = 'clear'
   error.value = null
   notice.value = null
   try {
     const result = await api.clearData()
     bumpDataVersion(0)
-    notice.value = `Данные очищены: статей ${result.cleared_articles}, саммари ${result.cleared_summaries}`
+    notice.value =
+      `Данные очищены: статей ${result.cleared_articles}, саммари ${result.cleared_summaries}, файлов вывода MCP ${result.cleared_mcp_outputs}`
     await refresh()
   } catch (err) {
     error.value = message(err)

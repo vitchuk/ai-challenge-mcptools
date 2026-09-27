@@ -132,6 +132,7 @@ export interface LatestSummaryResponse {
 export interface ClearDataResponse {
   cleared_articles: number
   cleared_summaries: number
+  cleared_mcp_outputs: number
 }
 
 export interface ToolsResponse {

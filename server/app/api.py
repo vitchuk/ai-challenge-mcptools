@@ -124,12 +124,22 @@ async def run_parsing_now() -> dict:
 
 @router.post("/parsing/clear-data")
 async def clear_data() -> dict:
-    """Удаляет все статьи из БД и все сохранённые саммари."""
+    """Удаляет все статьи из БД, все саммари и содержимое output-папок внешних MCP-серверов."""
     cleared_articles = db.clear_articles()
     cleared_summaries = tools.clear_summaries()
+    cleared_mcp_outputs = mcp_manager.manager.clear_output_dirs()
     scheduler.reset_parse_stats()
-    logger.info("Очистка данных: статей %s, саммари %s", cleared_articles, cleared_summaries)
-    return {"cleared_articles": cleared_articles, "cleared_summaries": cleared_summaries}
+    logger.info(
+        "Очистка данных: статей %s, саммари %s, файлов вывода MCP %s",
+        cleared_articles,
+        cleared_summaries,
+        cleared_mcp_outputs,
+    )
+    return {
+        "cleared_articles": cleared_articles,
+        "cleared_summaries": cleared_summaries,
+        "cleared_mcp_outputs": cleared_mcp_outputs,
+    }
 
 
 @router.get("/summary/latest")

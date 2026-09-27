@@ -69,10 +69,12 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
 - Лента `/best` — это уже «лучшее за сегодня»; `parser.fetch_best` дополнительно
   отбрасывает посты старше `max_post_age_hours`.
 - Очистка данных: `POST /api/parsing/clear-data` = `db.clear_articles` +
-  `tools.clear_summaries` (файлы `summary_*` + сброс `_last_summary`) +
-  `scheduler.reset_parse_stats`. Клиент синхронизирует вкладки через общий стор
-  `client/src/store.ts` (`dataVersion`): после очистки во вкладке «Чат» исчезают
-  карточки и блок «Саммари», появляется заглушка с таймером.
+  `tools.clear_summaries` (папки/файлы `summary_*` + сброс `_last_summary`) +
+  `mcp_manager.manager.clear_output_dirs()` (содержимое output-папок внешних
+  серверов, сами папки остаются) + `scheduler.reset_parse_stats`. Клиент
+  синхронизирует вкладки через общий стор `client/src/store.ts` (`dataVersion`):
+  после очистки во вкладке «Чат» исчезают карточки и блок «Саммари», появляется
+  заглушка с таймером.
 - Вкладка «Чат» сама не триггерит парсинг: она показывает обратный отсчёт до
   `parsing.next_run_at` и вейтер «выполняется парсинг», опрашивая `/api/status`;
   карточки подгружаются, когда `articles_count > 0`.
@@ -119,6 +121,7 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
 4. Кнопки/эндпоинты start/stop отражаются в `parsing.running`.
 5. `POST /api/parsing/clear-data` обнуляет `articles_count`, `summary/latest`
    отдаёт `exists:false`, а `last_summary_file`/`last_parsed_count` сбрасываются;
+   содержимое `mcp_output` тоже удаляется (`cleared_mcp_outputs` в ответе);
    во вкладке «Чат» появляется заглушка с таймером.
 6. MCP-серверы: в `/api/status → servers` у `playwright` `connected:true` после
    старта (npx при первом запуске скачивается ~1 мин);
