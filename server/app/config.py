@@ -55,6 +55,10 @@ class Settings:
     chat_rate_limit_per_minute: int
     chat_max_message_chars: int
 
+    # Внешние MCP-серверы
+    allowed_screenshot_hosts: list[str]
+    external_mcp_servers: list[dict]
+
     # Пути
     database_path: Path
     summaries_dir: Path
@@ -77,6 +81,15 @@ class Settings:
             "chat_max_iterations": self.chat_max_iterations,
             "chat_rate_limit_per_minute": self.chat_rate_limit_per_minute,
             "chat_max_message_chars": self.chat_max_message_chars,
+            "allowed_screenshot_hosts": self.allowed_screenshot_hosts,
+            "external_mcp_servers": [
+                {
+                    "name": server.get("name"),
+                    "description": server.get("description"),
+                    "enabled_by_default": bool(server.get("enabled_by_default", True)),
+                }
+                for server in self.external_mcp_servers
+            ],
         }
 
 
@@ -113,10 +126,12 @@ def get_settings() -> Settings:
         auto_summary_after_parse=bool(raw.get("auto_summary_after_parse", True)),
         parse_timeout_sec=float(raw.get("parse_timeout_sec", 20)),
         request_delay_sec=float(raw.get("request_delay_sec", 1.0)),
-        chat_max_iterations=int(raw.get("chat_max_iterations", 5)),
+        chat_max_iterations=int(raw.get("chat_max_iterations", 16)),
         chat_history_limit=int(raw.get("chat_history_limit", 20)),
         chat_rate_limit_per_minute=int(raw.get("chat_rate_limit_per_minute", 20)),
         chat_max_message_chars=int(raw.get("chat_max_message_chars", 4000)),
+        allowed_screenshot_hosts=list(raw.get("allowed_screenshot_hosts", ["pikabu.ru"])),
+        external_mcp_servers=list(raw.get("external_mcp_servers", [])),
         database_path=resolve(str(raw.get("database_path", "server/data/pikabu.db"))),
         summaries_dir=resolve(str(raw.get("summaries_dir", "server/data/summaries"))),
     )

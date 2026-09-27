@@ -19,6 +19,19 @@ export interface ToolInfo {
   description: string
   short_description?: string | null
   parameters: Record<string, unknown>
+  server?: string | null
+}
+
+export interface McpServerInfo {
+  name: string
+  description?: string | null
+  builtin: boolean
+  enabled: boolean
+  connected: boolean
+  tools_count: number
+  tools: string[]
+  last_error: string | null
+  output_dir: string | null
 }
 
 export interface ThemeInfo {
@@ -46,6 +59,7 @@ export interface AppStatus {
     transport: string
     tools_count: number
   }
+  servers: McpServerInfo[]
   parsing: ParsingStatus
   articles_count: number
   last_parsed_at: string | null
@@ -53,6 +67,12 @@ export interface AppStatus {
     model: string
     configured: boolean
   }
+}
+
+export interface ExternalMcpServerConfig {
+  name: string
+  description?: string | null
+  enabled_by_default: boolean
 }
 
 export interface AppConfig {
@@ -71,6 +91,8 @@ export interface AppConfig {
   chat_max_iterations: number
   chat_rate_limit_per_minute: number
   chat_max_message_chars: number
+  allowed_screenshot_hosts: string[]
+  external_mcp_servers: ExternalMcpServerConfig[]
 }
 
 export interface ToolCallEvent {
@@ -103,6 +125,7 @@ export interface SummaryData {
 export interface LatestSummaryResponse {
   exists: boolean
   file: string | null
+  folder: string | null
   summary: SummaryData | null
 }
 

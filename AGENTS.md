@@ -46,6 +46,21 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
   и регистрация в MCP (`mcp_server.register_tools`), и схемы для LLM
   (`tools.openai_tools_schema`). Новый тул добавляется в `tools.py` и попадает
   сразу в оба места; дублировать описания не нужно.
+- **Внешние MCP-серверы** — `server/app/mcp_manager.py` (stdio, описаны в
+  `config.json → external_mcp_servers`). Сессия каждого сервера живёт в своей
+  asyncio-задаче (стоп — через `asyncio.Event`; выход из контекстных менеджеров
+  происходит в той же задаче, что их открыла — требование anyio). Тулы наружу:
+  имя `server__tool`, показываются только из `tools_filter`; диспетчер чата —
+  `chat.route_tool_call` (префикс → `mcp_manager.call_external`, иначе реестр),
+  поэтому в одном диалоге агент последовательно вызывает тулы разных серверов.
+  Файлы `screenshot_tools` после вызова переносятся из output-папки в текущую
+  папку саммари (`tools.current_summary_dir()`); base64-картинки в ответы LLM не
+  попадают. Состояние вкл/выкл — `server/data/mcp_servers_state.json` (gitignored).
+  `mcp_manager` не должен импортировать `tools` (циклов не допускать).
+- **Папки саммари**: `summarize_best_posts` и автосаммари парсера создают
+  `summaries/summary_<ГГГГММДД_ЧЧММСС>/` с `summary.json`; `save_summary` и
+  скриншоты Playwright кладутся туда же. `clear_summaries` удаляет папки и файлы;
+  `/api/summary/latest` читает последний `summary_*/summary.json`.
 - **Саммаризация переиспользуется**: `tools._summarize_articles`/`save_last_summary`
   вызываются и тулами (`summarize_best_posts`, `save_summary`), и планировщиком
   (`scheduler._auto_summary`) после каждого парсинга. Автосаммари пишет JSON в
@@ -64,7 +79,9 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
 - MCP-сервер — `mcp.server.mcpserver.MCPServer` (это MCP SDK **v2**; в v1 класс
   назывался `FastMCP`). Не импортируйте `mcp.server.fastmcp` — в v2 он выбрасывает
   ошибку. Роут `/mcp` добавляется в FastAPI в `main.create_app()`.
-- Чат-агент выполняет тулы **в процессе** (`tools.call_tool`), а не по HTTP.
+- Чат-агент выполняет тулы **в процессе**: встроенные — `tools.call_tool`, внешние —
+  `mcp_manager.call_external` (роутинг по префиксу `server__tool` в `chat.route_tool_call`),
+  а не по HTTP к `/mcp`.
 - Конфиг сервера — `server/config.json`; секреты — только `.env`.
 - Абсолютные пути (`database_path`, `summaries_dir`) резолвятся от корня проекта
   в `config.py`.
@@ -84,7 +101,11 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
 
 - Никогда не логировать и не отдавать в API `DEEPSEEK_API_KEY`.
 - `.env` не коммитить (он в `.gitignore`); коммитить только `.env.example`.
-- Все внешние URL фиксированы на домены `pikabu.ru` (защита от SSRF).
+- Все внешние URL фиксированы на домены `pikabu.ru` (защита от SSRF). Для скриншотов
+  внешних MCP-серверов действует `allowed_screenshot_hosts`; аргументы с путями файлов
+  (`filename`/`path`) из вызовов модели вырезаются.
+- Команды внешних MCP-серверов берутся только из `config.json`, из UI доступны лишь
+  переключатели вкл/выкл по имени сервера (произвольные команды не принимаются).
 - Файлы саммари создаются только в `summaries_dir` с генерируемым сервером именем.
 - SQL — только параметризованный.
 - CORS ограничен `CORS_ORIGINS`.
@@ -99,9 +120,18 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
 5. `POST /api/parsing/clear-data` обнуляет `articles_count`, `summary/latest`
    отдаёт `exists:false`, а `last_summary_file`/`last_parsed_count` сбрасываются;
    во вкладке «Чат» появляется заглушка с таймером.
-6. MCP: подключиться клиентом к `/mcp`, вызвать `list_tools` и `call_tool`.
-7. Клиент: `npm run build` без ошибок типизации; чат `/tools` показывает 28 тулов.
-8. Для живого чата нужен `DEEPSEEK_API_KEY` в `.env` (без него возвращается
+6. MCP-серверы: в `/api/status → servers` у `playwright` `connected:true` после
+   старта (npx при первом запуске скачивается ~1 мин);
+   `POST /api/mcp-servers/playwright/disable` убирает `playwright__*` из
+   `/api/tools` (было 30 → 28), `enable` — возвращает; состояние переживает рестарт.
+7. Сценарий «саммари + скриншоты» (живой чат): сообщение вида «Сделай саммари 2
+   постов со скриншотами» → в `tool_calls` идут `summarize_best_posts` →
+   `playwright__browser_navigate`/`playwright__browser_take_screenshot`, в папке
+   `summaries/summary_*` появляются `summary.json` + PNG.
+8. MCP: подключиться клиентом к `/mcp`, вызвать `list_tools` и `call_tool`.
+9. Клиент: `npm run build` без ошибок типизации; чат `/tools` показывает 28
+   встроенных тулов + тулы подключённых внешних серверов.
+10. Для живого чата нужен `DEEPSEEK_API_KEY` в `.env` (без него возвращается
    понятная ошибка `llm_not_configured`).
 
 ## Git

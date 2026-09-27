@@ -7,7 +7,7 @@ import logging
 import time
 from collections import defaultdict, deque
 
-from . import db, deepseek, tools
+from . import db, deepseek, mcp_manager, tools
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -17,26 +17,50 @@ _rate_limits: dict[str, deque[float]] = defaultdict(deque)
 
 RESULT_PREVIEW_CHARS = 600
 
+SEPARATOR = mcp_manager.SEPARATOR
+
+
+def all_tools_schema() -> list[dict]:
+    """Схемы тулов для LLM: встроенные + подключённые внешние MCP-серверы."""
+    return tools.openai_tools_schema() + mcp_manager.manager.external_tools_schema()
+
+
+async def route_tool_call(name: str, arguments: dict) -> str:
+    """Вызов тула: namespace `server__tool` → внешний сервер, иначе — встроенный реестр."""
+    if SEPARATOR in name:
+        return await mcp_manager.call_external(name, arguments, tools.current_summary_dir())
+    return await tools.call_tool(name, arguments)
+
 
 def _system_prompt() -> str:
     saved = db.count_articles()
-    return (
+    prompt = (
         "Ты — дружелюбный ассистент веб-клиента Pikabu MCP. Отвечай на русском языке, кратко и по делу. "
         f"В локальной базе сейчас сохранено статей: {saved}.\n"
         "У тебя есть инструменты (tools):\n"
         "- get_saved_articles — статьи, сохранённые в базе (лента /best);\n"
         "- get_theme_<тема> — свежие посты конкретной темы pikabu (например get_theme_humor);\n"
-        "- summarize_best_posts — саммари последних N статей из /best (заголовок + текст + картинки/видео);\n"
+        "- summarize_best_posts — саммари последних N статей из /best; результат сохраняется в папку "
+        "(поле folder), туда же автоматически кладутся скриншоты;\n"
         "- save_summary — сохранить результат саммаризации в файл (txt или json);\n"
         "- start_parsing_pikabu / stop_parsing_pikabu — включить/выключить cron-парсинг.\n"
-        "Когда пользователь просит данные с pikabu, содержимое базы, саммари или управление парсингом — "
-        "вызывай соответствующие инструменты. Не выдумывай данные. "
+    )
+
+    flow = mcp_manager.manager.screenshot_flow_hint()
+    if flow:
+        prompt += flow + "\n"
+
+    prompt += (
+        "Когда пользователь просит данные с pikabu, содержимое базы, саммари, скриншоты или управление парсингом — "
+        "вызывай соответствующие инструменты. Можно вызывать тулы разных MCP-серверов последовательно в одном ответе. "
+        "Не выдумывай данные. "
         "Если перечисляешь посты, выводи каждый пост отдельной строкой строго в формате: "
-        '"**Заголовок поста** — Автор, рейтинг, комментариев · [ссылка](URL)' \
+        '"**Заголовок поста** — Автор, рейтинг, комментариев · [ссылка](URL)'
         ' · видео" (часть « · видео» добавляй только если в данных поста есть видео). '
         "Ссылки на посты возвращай как есть. Если инструмент вернул ошибку, сообщи о ней пользователю понятным языком. "
         "Подскажи пользователю, что команда /tools показывает список всех доступных инструментов."
     )
+    return prompt
 
 
 def _check_rate_limit(session_id: str) -> bool:
@@ -127,7 +151,7 @@ async def run_chat(session_id: str, user_message: str) -> dict:
             response = await client.chat.completions.create(
                 model=settings.deepseek_model,
                 messages=messages,
-                tools=tools.openai_tools_schema(),
+                tools=all_tools_schema(),
                 tool_choice="auto",
                 temperature=0.7,
                 max_tokens=2000,
@@ -140,7 +164,7 @@ async def run_chat(session_id: str, user_message: str) -> dict:
             messages.append(_assistant_message_payload(message))
             for call in message.tool_calls:
                 arguments = _parse_arguments(call.function.arguments)
-                result = await tools.call_tool(call.function.name, arguments)
+                result = await route_tool_call(call.function.name, arguments)
                 tool_events.append(
                     {
                         "name": call.function.name,

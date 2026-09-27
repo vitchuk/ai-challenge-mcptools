@@ -5,6 +5,7 @@ import type {
   ChatResponse,
   ClearDataResponse,
   LatestSummaryResponse,
+  McpServerInfo,
   ParsingStatus,
   ThemesResponse,
   ToolsResponse,
@@ -48,6 +49,10 @@ export const api = {
   runNow: () => request<Record<string, unknown>>('/api/parsing/run-now', { method: 'POST' }),
   clearData: () => request<ClearDataResponse>('/api/parsing/clear-data', { method: 'POST' }),
   getLatestSummary: () => request<LatestSummaryResponse>('/api/summary/latest'),
+  enableMcpServer: (name: string) =>
+    request<McpServerInfo>(`/api/mcp-servers/${encodeURIComponent(name)}/enable`, { method: 'POST' }),
+  disableMcpServer: (name: string) =>
+    request<McpServerInfo>(`/api/mcp-servers/${encodeURIComponent(name)}/disable`, { method: 'POST' }),
   sendChat: (message: string) =>
     request<ChatResponse>('/api/chat', {
       method: 'POST',

@@ -24,6 +24,7 @@ const lastRunSeen = ref<string | null>(null)
 
 const summary = ref<SummaryData | null>(null)
 const summaryFile = ref<string | null>(null)
+const summaryFolder = ref<string | null>(null)
 const showSummary = computed(() => hasArticles.value)
 
 let tickTimer: number | undefined
@@ -33,6 +34,7 @@ const suggestions = [
   '/tools',
   'Покажи статьи из базы',
   'Сделай саммари последних 5 статей',
+  'Сделай саммари 3 постов со скриншотами',
   'Сохрани саммари как json',
   'Что нового в теме IT?',
 ]
@@ -85,9 +87,11 @@ async function loadSummary() {
     const data = await api.getLatestSummary()
     summary.value = data.summary
     summaryFile.value = data.file
+    summaryFolder.value = data.folder
   } catch {
     summary.value = null
     summaryFile.value = null
+    summaryFolder.value = null
   }
 }
 
@@ -192,6 +196,9 @@ async function send() {
       toolCalls: response.tool_calls,
       error: Boolean(response.error),
     })
+    if (response.tool_calls.some((call) => call.name === 'summarize_best_posts' || call.name === 'save_summary')) {
+      await loadSummary()
+    }
   } catch (error) {
     addMessage({ role: 'assistant', kind: 'text', text: `Ошибка: ${errorText(error)}`, error: true })
   } finally {
@@ -217,6 +224,7 @@ watch(dataVersion, async () => {
   postStore.value = {}
   summary.value = null
   summaryFile.value = null
+  summaryFolder.value = null
   waitingForParse.value = false
   await refreshStatus()
 })
@@ -239,7 +247,7 @@ onUnmounted(() => {
         <details class="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
           <summary class="cursor-pointer text-xs font-medium uppercase tracking-wide text-slate-400">
             Саммари
-            <span v-if="summaryFile" class="ml-2 normal-case text-slate-500">{{ summaryFile }}</span>
+            <span v-if="summaryFolder || summaryFile" class="ml-2 normal-case text-slate-500">{{ summaryFolder || summaryFile }}</span>
           </summary>
           <pre
             v-if="summary"
