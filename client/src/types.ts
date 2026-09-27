@@ -118,6 +118,7 @@ export interface SummaryData {
   summary: string
   images: string[]
   videos: string[]
+  posts?: { title: string; url: string }[]
   source_count: number
   created_at: string
 }

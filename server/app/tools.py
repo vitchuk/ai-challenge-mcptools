@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -94,7 +95,7 @@ async def get_saved_articles(limit: int = 20) -> str:
 
 
 async def summarize_best_posts(count: int = 10) -> str:
-    """Саммари последних N статей из /best."""
+    """Саммари последних N статей из /best (создаёт папку саммари под скриншоты)."""
     count = max(1, min(int(count), 50))
     articles = db.get_articles_for_summary(count)
     if not articles:
@@ -132,43 +133,56 @@ def _build_prompt(articles: list[dict]) -> tuple[str, str]:
     return system_prompt, user_prompt
 
 
-async def _summarize_articles(articles: list[dict]) -> dict:
-    """Саммари статей через LLM: создаёт папку саммари и пишет в неё summary.json."""
+async def _summarize_articles(articles: list[dict], *, folder: bool = True) -> dict:
+    """Саммари статей через LLM.
+
+    folder=True (саммари из чата): создаёт папку summary_<ГГГГММДД_ЧЧММСС>/, пишет summary.json,
+    делает её текущей — туда маршрутизируются скриншоты.
+    folder=False (автосаммари после парсинга): пишет плоский summary_auto_<ГГГГММДД_ЧЧММСС>.json,
+    папку не создаёт и маршрут скриншотов (_last_summary_dir) не перехватывает.
+    """
     global _last_summary, _last_summary_dir
     system_prompt, user_prompt = _build_prompt(articles)
     raw = await deepseek.complete_text(system_prompt, user_prompt, temperature=0.4, max_tokens=2500)
     title, summary = _parse_summary(raw, fallback_title=articles[0]["title"])
     images, videos = _collect_media(articles)
+    posts = [{"title": a.get("title"), "url": a.get("url")} for a in articles]
 
     settings = get_settings()
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    folder = settings.summaries_dir / f"summary_{timestamp}"
-    folder.mkdir(parents=True, exist_ok=True)
-
     data = {
         "title": title,
         "summary": summary,
         "images": images,
         "videos": videos,
+        "posts": posts,
         "source_count": len(articles),
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
-    summary_file = folder / "summary.json"
-    summary_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    _last_summary = {**data, "folder": _rel(folder), "file": _rel(summary_file)}
-    _last_summary_dir = folder
+    if folder:
+        folder_path = settings.summaries_dir / f"summary_{timestamp}"
+        folder_path.mkdir(parents=True, exist_ok=True)
+        summary_file = folder_path / "summary.json"
+        summary_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        _last_summary_dir = folder_path
+    else:
+        settings.summaries_dir.mkdir(parents=True, exist_ok=True)
+        summary_file = settings.summaries_dir / f"summary_auto_{timestamp}.json"
+        summary_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    _last_summary = {**data, "folder": _rel(folder_path) if folder else None, "file": _rel(summary_file)}
     return _last_summary
+
+
+async def summarize_articles(articles: list[dict]) -> dict:
+    """Автосаммари после парсинга (планировщик): плоский JSON, без папки."""
+    return await _summarize_articles(articles, folder=False)
 
 
 def current_summary_dir():
     """Текущая папка саммари (куда складывать скриншоты) или None."""
     return _last_summary_dir
-
-
-async def summarize_articles(articles: list[dict]) -> dict:
-    """Публичная обёртка для автосаммари после парсинга (используется планировщиком)."""
-    return await _summarize_articles(articles)
 
 
 def _parse_summary(raw: str, *, fallback_title: str) -> tuple[str, str]:
@@ -273,28 +287,41 @@ def clear_summaries() -> int:
 
 
 def get_latest_summary() -> dict:
-    """Последний саммари (summary_*/summary.json либо плоский summary_*.json) для клиента."""
+    """Самый свежий саммари: из папок summary_<ts>/summary.json и плоских summary_*[_auto]_<ts>.json."""
     settings = get_settings()
     if not settings.summaries_dir.is_dir():
         return {"exists": False, "file": None, "folder": None, "summary": None}
 
-    folders = [path for path in settings.summaries_dir.glob("summary_*") if path.is_dir()]
-    if folders:
-        latest = max(folders, key=lambda path: path.name)
-        summary_file = latest / "summary.json"
+    candidates: list[tuple[str, Path, Path | None]] = []  # (timestamp, summary_file, folder|None)
+    for folder in settings.summaries_dir.glob("summary_*"):
+        if not folder.is_dir():
+            continue
+        summary_file = folder / "summary.json"
         if summary_file.is_file():
-            data = _read_summary_json(summary_file)
-            if data is not None:
-                return {"exists": True, "file": _rel(summary_file), "folder": _rel(latest), "summary": data}
+            candidates.append((_name_timestamp(folder.name), summary_file, folder))
+    for file in settings.summaries_dir.glob("summary_*.json"):
+        candidates.append((_name_timestamp(file.name), file, None))
 
-    files = [path for path in settings.summaries_dir.glob("summary_*.json") if path.is_file()]
-    if not files:
-        return {"exists": False, "file": None, "folder": None, "summary": None}
-    latest = max(files, key=lambda path: (path.name, path.stat().st_mtime))
-    data = _read_summary_json(latest)
+    empty = {"exists": False, "file": None, "folder": None, "summary": None}
+    if not candidates:
+        return empty
+
+    _, latest_file, latest_folder = max(candidates, key=lambda item: (item[0], item[1].stat().st_mtime))
+    data = _read_summary_json(latest_file)
     if data is None:
-        return {"exists": False, "file": None, "folder": None, "summary": None}
-    return {"exists": True, "file": _rel(latest), "folder": None, "summary": data}
+        return empty
+    return {
+        "exists": True,
+        "file": _rel(latest_file),
+        "folder": _rel(latest_folder) if latest_folder else None,
+        "summary": data,
+    }
+
+
+def _name_timestamp(name: str) -> str:
+    """Достаёт ГГГГММДД_ЧЧММСС из имени summary_..._ / summary_auto_...."""
+    match = re.search(r"(\d{8}_\d{6})", name)
+    return match.group(1) if match else ""
 
 
 def _read_summary_json(path) -> dict | None:
@@ -357,9 +384,10 @@ def register_core_tools() -> None:
     )
     _register(
         "summarize_best_posts",
-        "Делает саммари последних N статей из сохранённой ленты pikabu.ru/best. "
-        "Возвращает JSON с заголовком, текстом саммари и списками картинок/видео. "
-        "Результат сохраняется как последний саммари и доступен тулу save_summary.",
+        "Делает саммари последних N статей из сохранённой ленты pikabu.ru/best и создаёт папку "
+        "саммари. Возвращает JSON: заголовок, текст саммари, images[], videos[] и posts[] (title+url "
+        "разбираемых постов). Папка (поле folder) становится текущей: скриншоты из внешних "
+        "MCP-серверов автоматически сохраняются в неё. Результат доступен тулу save_summary.",
         {
             "type": "object",
             "properties": {

@@ -294,8 +294,10 @@ class MCPManager:
             nav_full = f"{server.name}{SEPARATOR}{navigate}"
             shot_full = f"{server.name}{SEPARATOR}{shot}"
             return (
-                "Сценарий «саммари со скриншотами»: 1) вызови summarize_best_posts — он создаёт папку "
-                "саммари (поле folder) и делает её текущей; 2) для каждого поста из результата: "
+                "Сценарий «саммари со скриншотами»: 1) вызови summarize_best_posts РОВНО ОДИН раз — "
+                "он создаёт папку саммари (поле folder) и возвращает список posts с url; "
+                "не вызывай summarize_best_posts повторно и не проси статьи через get_saved_articles, "
+                f"если URL уже есть в поле posts; 2) для каждого поста из posts: "
                 f"сначала {nav_full} (url поста), затем {shot_full} (без параметра filename) — "
                 "скриншот автоматически попадёт в папку саммари (поле saved_screenshots в ответе); "
                 "3) в финальном ответе укажи путь к папке и имена скриншотов. "

@@ -57,14 +57,16 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
   папку саммари (`tools.current_summary_dir()`); base64-картинки в ответы LLM не
   попадают. Состояние вкл/выкл — `server/data/mcp_servers_state.json` (gitignored).
   `mcp_manager` не должен импортировать `tools` (циклов не допускать).
-- **Папки саммари**: `summarize_best_posts` и автосаммари парсера создают
-  `summaries/summary_<ГГГГММДД_ЧЧММСС>/` с `summary.json`; `save_summary` и
-  скриншоты Playwright кладутся туда же. `clear_summaries` удаляет папки и файлы;
-  `/api/summary/latest` читает последний `summary_*/summary.json`.
-- **Саммаризация переиспользуется**: `tools._summarize_articles`/`save_last_summary`
-  вызываются и тулами (`summarize_best_posts`, `save_summary`), и планировщиком
-  (`scheduler._auto_summary`) после каждого парсинга. Автосаммари пишет JSON в
-  `summaries_dir` для новых story_id; ошибки LLM не ломают парсинг (пишутся в
+- **Папки саммари — только для чата**: `summarize_best_posts` (чат) создаёт
+  `summaries/summary_<ГГГГММДД_ЧЧММСС>/` с `summary.json` и становится маршрутом скриншотов
+  (`current_summary_dir()`). Автосаммари парсера пишет ПЛОСКИЙ `summary_auto_<ts>.json` и папку
+  НЕ создаёт / маршрут не перехватывает (иначе на «саммари+скриншоты» получались дубли папок).
+  `save_summary` — в текущую папку. `clear_summaries` удаляет `summary_*` (файлы и папки);
+  `/api/summary/latest` сравнивает папки и плоские файлы по таймстемпу в имени.
+- **Саммаризация переиспользуется**: `tools._summarize_articles(articles, folder=...)`
+  вызывается и тулами (`summarize_best_posts` — folder=True; `save_summary` использует ту же
+  `_last_summary`), и планировщиком (`scheduler._auto_summary` → `tools.summarize_articles` —
+  folder=False) после каждого парсинга. Ошибки LLM не ломают парсинг (пишутся в
   `parsing.last_summary_error`).
 - Лента `/best` — это уже «лучшее за сегодня»; `parser.fetch_best` дополнительно
   отбрасывает посты старше `max_post_age_hours`.
