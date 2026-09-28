@@ -93,11 +93,10 @@ async def _auto_summary(new_articles: list[dict]) -> None:
     from . import tools
 
     try:
-        await tools.summarize_articles(new_articles)
-        saved = tools.save_last_summary("json")
-        _state["last_summary_file"] = saved.get("file")
+        summary = await tools.summarize_articles(new_articles)
+        _state["last_summary_file"] = summary.get("file")
         _state["last_summary_error"] = None
-        logger.info("Автосаммари сохранено: %s", saved.get("file"))
+        logger.info("Автосаммари сохранено: %s", summary.get("file"))
     except Exception as exc:  # noqa: BLE001 — автосаммари не должно ломать парсинг
         _state["last_summary_error"] = str(exc)
         logger.warning("Не удалось сделать автосаммари: %s", exc)

@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import db, mcp_server, scheduler
+from . import db, mcp_manager, mcp_server, scheduler
 from .api import router as api_router
 from .config import ROOT_DIR, get_settings
 from .themes import load_themes
@@ -31,6 +31,9 @@ async def lifespan(app: FastAPI):
     app.state.themes = themes
     logger.info("Тем загружено: %s", len(themes))
 
+    mcp_manager.manager.configure(settings.external_mcp_servers)
+    await mcp_manager.manager.startup()
+
     async with mcp_server.mcp.session_manager.run():
         if settings.autostart_parsing:
             scheduler.start_scheduler()
@@ -40,6 +43,7 @@ async def lifespan(app: FastAPI):
         try:
             yield
         finally:
+            await mcp_manager.manager.shutdown()
             scheduler.shutdown_scheduler()
 
 

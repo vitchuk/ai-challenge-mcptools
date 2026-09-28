@@ -1,5 +1,5 @@
 {
-  "parse_interval_minutes": 2,
+  "parse_interval_minutes": 30,
   "max_articles": 10,
   "posts_per_fetch": 8,
   "pikabu_best_url": "https://pikabu.ru/best",
@@ -14,8 +14,22 @@
   "summaries_dir": "server/data/summaries",
   "parse_timeout_sec": 20,
   "request_delay_sec": 1.0,
-  "chat_max_iterations": 5,
+  "chat_max_iterations": 16,
   "chat_history_limit": 20,
   "chat_rate_limit_per_minute": 20,
-  "chat_max_message_chars": 4000
+  "chat_max_message_chars": 4000,
+  "allowed_screenshot_hosts": ["pikabu.ru"],
+  "external_mcp_servers": [
+    {
+      "name": "playwright",
+      "description": "Скриншоты страниц браузера (Microsoft Playwright MCP)",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest", "--headless", "--image-responses", "omit"],
+      "enabled_by_default": true,
+      "output_dir": "server/data/mcp_output",
+      "output_dir_flag": "--output-dir",
+      "tools_filter": ["browser_navigate", "browser_take_screenshot"],
+      "screenshot_tools": ["browser_take_screenshot"]
+    }
+  ]
 }

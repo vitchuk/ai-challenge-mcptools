@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Header, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from . import chat, db, mcp_server, scheduler, tools
+from . import chat, db, mcp_manager, mcp_server, scheduler, tools
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,19 @@ async def get_status() -> dict:
     except Exception as exc:  # noqa: BLE001
         logger.warning("MCP health-check failed: %s", exc)
 
+    builtin = {
+        "name": "pikabu",
+        "description": "Встроенный сервер: тулы pikabu (статьи, темы, саммари, парсинг)",
+        "builtin": True,
+        "enabled": True,
+        "connected": mcp_ok,
+        "tools_count": len(tools.REGISTRY),
+        "tools": list(tools.REGISTRY.keys()),
+        "last_error": None,
+        "output_dir": None,
+    }
+    servers = [builtin] + mcp_manager.manager.status()
+
     return {
         "mcp": {
             "connected": mcp_ok,
@@ -37,6 +50,7 @@ async def get_status() -> dict:
             "transport": "streamable-http",
             "tools_count": len(tools.REGISTRY),
         },
+        "servers": servers,
         "parsing": scheduler.status(),
         "articles_count": db.count_articles(),
         "last_parsed_at": db.last_parsed_at(),
@@ -60,8 +74,31 @@ async def get_articles(limit: int = Query(default=100, ge=1, le=500)) -> dict:
 
 @router.get("/tools")
 async def get_tools() -> dict:
-    info = tools.tools_info()
-    return {"count": len(info), "tools": info}
+    builtin = [{**entry, "server": "pikabu"} for entry in tools.tools_info()]
+    external = mcp_manager.manager.external_tools_info()
+    all_tools = builtin + external
+    return {"count": len(all_tools), "tools": all_tools}
+
+
+@router.get("/mcp-servers")
+async def get_mcp_servers() -> dict:
+    return {"servers": mcp_manager.manager.status()}
+
+
+@router.post("/mcp-servers/{name}/enable")
+async def enable_mcp_server(name: str) -> dict:
+    try:
+        return await mcp_manager.manager.set_enabled(name, True)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Неизвестный MCP-сервер: {name}") from exc
+
+
+@router.post("/mcp-servers/{name}/disable")
+async def disable_mcp_server(name: str) -> dict:
+    try:
+        return await mcp_manager.manager.set_enabled(name, False)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Неизвестный MCP-сервер: {name}") from exc
 
 
 @router.get("/themes")
@@ -87,12 +124,22 @@ async def run_parsing_now() -> dict:
 
 @router.post("/parsing/clear-data")
 async def clear_data() -> dict:
-    """Удаляет все статьи из БД и все сохранённые саммари."""
+    """Удаляет все статьи из БД, все саммари и содержимое output-папок внешних MCP-серверов."""
     cleared_articles = db.clear_articles()
     cleared_summaries = tools.clear_summaries()
+    cleared_mcp_outputs = mcp_manager.manager.clear_output_dirs()
     scheduler.reset_parse_stats()
-    logger.info("Очистка данных: статей %s, саммари %s", cleared_articles, cleared_summaries)
-    return {"cleared_articles": cleared_articles, "cleared_summaries": cleared_summaries}
+    logger.info(
+        "Очистка данных: статей %s, саммари %s, файлов вывода MCP %s",
+        cleared_articles,
+        cleared_summaries,
+        cleared_mcp_outputs,
+    )
+    return {
+        "cleared_articles": cleared_articles,
+        "cleared_summaries": cleared_summaries,
+        "cleared_mcp_outputs": cleared_mcp_outputs,
+    }
 
 
 @router.get("/summary/latest")

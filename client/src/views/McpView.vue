@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api'
 import { bumpDataVersion } from '../store'
-import type { AppConfig, AppStatus, ThemeInfo, ToolInfo } from '../types'
+import type { AppConfig, AppStatus, McpServerInfo, ThemeInfo, ToolInfo } from '../types'
 
 const status = ref<AppStatus | null>(null)
 const config = ref<AppConfig | null>(null)
@@ -11,15 +11,46 @@ const themes = ref<ThemeInfo[]>([])
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 const busy = ref<'start' | 'stop' | 'run' | 'clear' | null>(null)
+const busyServer = ref<string | null>(null)
 let timer: number | undefined
 
-const coreTools = computed(() => tools.value.filter((tool) => !tool.name.startsWith('get_theme_')))
+const servers = computed<McpServerInfo[]>(() => status.value?.servers ?? [])
+const coreTools = computed(() =>
+  tools.value.filter((tool) => (!tool.server || tool.server === 'pikabu') && !tool.name.startsWith('get_theme_')),
+)
 const themeTools = computed(() => tools.value.filter((tool) => tool.name.startsWith('get_theme_')))
+const externalTools = computed(() => tools.value.filter((tool) => tool.server && tool.server !== 'pikabu'))
 const mcpUrl = computed(() => `${window.location.origin}/mcp`)
 const summaryFile = computed(() => {
   const file = status.value?.parsing.last_summary_file
   return file ? file.split(/[\\/]/).pop() : null
 })
+
+function serverDot(server: McpServerInfo): string {
+  if (server.connected) return 'bg-emerald-400'
+  return 'bg-red-500'
+}
+
+function serverStateLabel(server: McpServerInfo): string {
+  if (server.connected) return 'подключён'
+  if (server.enabled) return 'запускается'
+  return 'выключен'
+}
+
+async function toggleServer(server: McpServerInfo) {
+  busyServer.value = server.name
+  error.value = null
+  try {
+    if (server.enabled) await api.disableMcpServer(server.name)
+    else await api.enableMcpServer(server.name)
+    await refresh()
+    await loadStatic()
+  } catch (err) {
+    error.value = message(err)
+  } finally {
+    busyServer.value = null
+  }
+}
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -62,14 +93,15 @@ async function action(kind: 'start' | 'stop' | 'run') {
 }
 
 async function clearData() {
-  if (!window.confirm('Удалить все статьи из БД и все саммари? Действие необратимо.')) return
+  if (!window.confirm('Удалить все статьи из БД, все саммари и файлы вывода MCP-серверов? Действие необратимо.')) return
   busy.value = 'clear'
   error.value = null
   notice.value = null
   try {
     const result = await api.clearData()
     bumpDataVersion(0)
-    notice.value = `Данные очищены: статей ${result.cleared_articles}, саммари ${result.cleared_summaries}`
+    notice.value =
+      `Данные очищены: статей ${result.cleared_articles}, саммари ${result.cleared_summaries}, файлов вывода MCP ${result.cleared_mcp_outputs}`
     await refresh()
   } catch (err) {
     error.value = message(err)
@@ -178,6 +210,10 @@ onUnmounted(() => {
             <dt>Исключённые темы</dt>
             <dd class="truncate text-slate-300">{{ config?.excluded_themes?.length ? config.excluded_themes.join(', ') : 'нет' }}</dd>
           </div>
+          <div class="flex justify-between gap-2">
+            <dt>Хосты для скриншотов</dt>
+            <dd class="truncate text-slate-300">{{ config?.allowed_screenshot_hosts?.length ? config.allowed_screenshot_hosts.join(', ') : 'все' }}</dd>
+          </div>
         </dl>
       </section>
 
@@ -269,6 +305,52 @@ onUnmounted(() => {
       </section>
     </div>
 
+    <!-- Внешние и встроенные MCP-серверы -->
+    <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <h2 class="mb-3 text-sm font-semibold text-slate-200">MCP-серверы ({{ servers.length }})</h2>
+      <ul class="space-y-2">
+        <li
+          v-for="server in servers"
+          :key="server.name"
+          class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2"
+        >
+          <div class="flex min-w-0 items-center gap-2">
+            <span class="inline-block h-2.5 w-2.5 shrink-0 rounded-full" :class="serverDot(server)" />
+            <div class="min-w-0">
+              <p class="truncate text-sm text-slate-200">
+                <span class="font-medium">{{ server.name }}</span>
+                <span
+                  v-if="server.builtin"
+                  class="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400"
+                >
+                  встроенный
+                </span>
+              </p>
+              <p class="truncate text-xs" :class="server.last_error ? 'text-red-300' : 'text-slate-500'">
+                {{ server.last_error || server.description }}
+              </p>
+            </div>
+          </div>
+          <div class="flex shrink-0 items-center gap-3 text-xs">
+            <span class="text-slate-400">тулов: {{ server.tools_count }}</span>
+            <span :class="server.connected ? 'text-emerald-300' : 'text-red-300'">{{ serverStateLabel(server) }}</span>
+            <button
+              v-if="!server.builtin"
+              type="button"
+              :disabled="busyServer !== null"
+              class="rounded-lg border px-3 py-1.5 text-xs transition disabled:opacity-40"
+              :class="server.enabled
+                ? 'border-red-800 text-red-300 hover:border-red-500 hover:text-red-200'
+                : 'border-emerald-800 text-emerald-300 hover:border-emerald-500 hover:text-emerald-200'"
+              @click="toggleServer(server)"
+            >
+              {{ busyServer === server.name ? 'Ждите…' : server.enabled ? 'Выключить' : 'Включить' }}
+            </button>
+          </div>
+        </li>
+      </ul>
+    </section>
+
     <!-- Тулы -->
     <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
       <h2 class="mb-3 text-sm font-semibold text-slate-200">Тулы MCP ({{ tools.length }})</h2>
@@ -296,6 +378,25 @@ onUnmounted(() => {
             <tr v-for="tool in themeTools" :key="tool.name" class="border-t border-slate-800/60">
               <td class="w-52 py-1.5 pr-3 align-top font-mono text-emerald-300">{{ tool.name }}</td>
               <td class="py-1.5 text-slate-400">{{ tool.short_description || tool.description }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </details>
+
+      <details v-if="externalTools.length" class="mt-4">
+        <summary class="cursor-pointer text-xs font-medium uppercase tracking-wide text-slate-500">
+          Внешние MCP-серверы ({{ externalTools.length }})
+        </summary>
+        <table class="mt-2 w-full text-left text-xs">
+          <tbody>
+            <tr v-for="tool in externalTools" :key="tool.name" class="border-t border-slate-800/60">
+              <td class="w-52 py-1.5 pr-3 align-top font-mono text-emerald-300">
+                {{ tool.name }}
+                <span class="mt-0.5 block font-sans text-[10px] uppercase tracking-wide text-slate-500">
+                  сервер: {{ tool.server }}
+                </span>
+              </td>
+              <td class="py-1.5 text-slate-400">{{ tool.description }}</td>
             </tr>
           </tbody>
         </table>
