@@ -15,6 +15,7 @@ MCP-тулы и ведёт чат пользователя с LLM (DeepSeek) ч�
 - **Важно:** команда `python` в PATH — заглушка Microsoft Store (не работает).
   Всегда используйте `.venv\Scripts\python.exe` или `py -3`.
 - Node.js 18+ (проверено на 26).
+- Для скриншотов нужен системный Google Chrome (Playwright MCP использует канал `chrome`).
 
 ## Команды
 
@@ -34,11 +35,20 @@ npm run build      # vue-tsc (typecheck) + vite build -> client/dist
 ```
 
 Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
+**Не поднимать `typescript` до 7.x** — vue-tsc 3.x с ним падает
+(`ERR_PACKAGE_PATH_NOT_EXPORTED './lib/tsc'`); в `package.json` зафиксирован `^5`.
 Отдельного линтера Python в проекте нет; код должен импортироваться без ошибок
 (`.venv\Scripts\python.exe -c "import app.main"` из `server`).
 
 Проверка MCP: после старта сервера — `GET /api/status` (должно быть
 `mcp.connected: true`, `tools_count: 28`) или подключение MCP-клиента к `/mcp`.
+
+Грабли:
+- `config.json` читается один раз при старте (`lru_cache` на `get_settings()` в `config.py`) —
+  правки конфига вступают в силу только после рестарта сервера.
+- Если сервер «висит» на старте или API рвёт соединения (`ConnectionReset`) — скорее всего,
+  на :8000 остался старый процесс от предыдущего запуска:
+  `Get-NetTCPConnection -LocalPort 8000 -State Listen` → `Stop-Process -Id <PID>`.
 
 ## Архитектурные правила
 
@@ -68,6 +78,9 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
   `_last_summary`), и планировщиком (`scheduler._auto_summary` → `tools.summarize_articles` —
   folder=False) после каждого парсинга. Ошибки LLM не ломают парсинг (пишутся в
   `parsing.last_summary_error`).
+- Цепочке «саммари + скриншоты» (summarize → navigate → screenshot на каждый пост) нужен
+  запас итераций чата: `chat_max_iterations: 16` в `config.json` (при 5 сценарий обрезается
+  посередине).
 - Лента `/best` — это уже «лучшее за сегодня»; `parser.fetch_best` дополнительно
   отбрасывает посты старше `max_post_age_hours`.
 - Очистка данных: `POST /api/parsing/clear-data` = `db.clear_articles` +
@@ -82,14 +95,14 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
   карточки подгружаются, когда `articles_count > 0`.
 - MCP-сервер — `mcp.server.mcpserver.MCPServer` (это MCP SDK **v2**; в v1 класс
   назывался `FastMCP`). Не импортируйте `mcp.server.fastmcp` — в v2 он выбрасывает
-  ошибку. Роут `/mcp` добавляется в FastAPI в `main.create_app()`.
+  ошибку. Поля моделей SDK — snake_case (`input_schema`, `is_error`, `server_info`),
+  а не camelCase из спецификации. Роут `/mcp` добавляется в FastAPI в `main.create_app()`.
 - Чат-агент выполняет тулы **в процессе**: встроенные — `tools.call_tool`, внешние —
   `mcp_manager.call_external` (роутинг по префиксу `server__tool` в `chat.route_tool_call`),
   а не по HTTP к `/mcp`.
 - Конфиг сервера — `server/config.json`; секреты — только `.env`.
 - Абсолютные пути (`database_path`, `summaries_dir`) резолвятся от корня проекта
   в `config.py`.
-- Схема БД и обрезка до Y (`max_articles`) — `server/app/db.py`.
 
 ## Соглашения по коду
 
@@ -116,10 +129,16 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
 
 ## Тестирование изменений
 
+> Готовые процедуры и скрипты (фоновый запуск сервера, smoke REST/MCP, живой чат-сценарий)
+> — скиллы opencode `pikabu-e2e` и `pikabu-chat-live-test` в `.opencode/skills/`
+> (появляются в сессии после перезапуска opencode). Чеклист ниже — контракт проверок.
+
 1. Запустить сервер и проверить `GET /api/status`, `/api/tools`, `/api/articles`.
-2. `POST /api/parsing/run-now` — в БД должно появиться 8 новых постов.
+2. `POST /api/parsing/run-now` — сохраняется 8 постов ленты; в `new` может быть 0, если
+   лента с прошлого парсинга не изменилась (это не ошибка).
 3. При наличии `DEEPSEEK_API_KEY` после парсинга в `server/data/summaries/` должен
-   появиться `summary_*.json`, а в `/api/status` — `parsing.last_summary_file`.
+   появиться **плоский** `summary_auto_<ts>.json` (не папка!), а в `/api/status` —
+   `parsing.last_summary_file`.
 4. Кнопки/эндпоинты start/stop отражаются в `parsing.running`.
 5. `POST /api/parsing/clear-data` обнуляет `articles_count`, `summary/latest`
    отдаёт `exists:false`, а `last_summary_file`/`last_parsed_count` сбрасываются;
@@ -132,7 +151,8 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
 7. Сценарий «саммари + скриншоты» (живой чат): сообщение вида «Сделай саммари 2
    постов со скриншотами» → в `tool_calls` идут `summarize_best_posts` →
    `playwright__browser_navigate`/`playwright__browser_take_screenshot`, в папке
-   `summaries/summary_*` появляются `summary.json` + PNG.
+   `summaries/summary_*` появляются `summary.json` + PNG. Папка за один такой запрос —
+   ровно одна (парсинг/автосаммари в неё не мешаются).
 8. MCP: подключиться клиентом к `/mcp`, вызвать `list_tools` и `call_tool`.
 9. Клиент: `npm run build` без ошибок типизации; чат `/tools` показывает 28
    встроенных тулов + тулы подключённых внешних серверов.
@@ -143,3 +163,6 @@ Typecheck клиента: `npm run build` (включает `vue-tsc --noEmit`).
 
 - Коммитить по завершении логической единицы работы, осмысленным сообщением.
 - Не коммитить `.env`, `node_modules`, `.venv`, `server/data`, `client/dist`.
+- **Push — только по явной просьбе пользователя и в указанную им ветку.** В репозитории
+  `main` + ветки-«дни» вида `dayNN` (`day18-19`, `day20`); локальный `main` может
+  опережать `origin/main` — это норма, не «чинить» пушем без запроса.

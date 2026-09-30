@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from . import chat, db, mcp_manager, mcp_server, scheduler, tools
+from . import chat, db, mcp_manager, mcp_server, rag, scheduler, tools
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -164,3 +164,30 @@ async def reset_chat(
     session_id = ((payload.session_id if payload else None) or x_session_id or "default")[:128]
     chat.reset_session(session_id)
     return {"ok": True, "session_id": session_id}
+
+
+@router.get("/rag/strategies")
+async def get_rag_strategies() -> dict:
+    """Собранные RAG-индексы по стратегиям чанкинга (для переключения стратегий в UI)."""
+    return {"strategies": rag.list_indexes()}
+
+
+@router.get("/rag/strategies/{strategy}")
+async def get_rag_strategy_chunks(
+    strategy: str, limit: int = Query(default=50, ge=1, le=500)
+) -> dict:
+    """Чанки конкретной стратегии (без векторов)."""
+    index = rag.load_index(strategy)
+    if index is None:
+        raise HTTPException(status_code=404, detail=f"Индекс стратегии '{strategy}' не собран")
+    chunks = index.get("chunks", [])
+    return {
+        "strategy": strategy,
+        "description": index.get("description"),
+        "params": index.get("params"),
+        "source": index.get("source"),
+        "embedding": index.get("embedding"),
+        "built_at": index.get("built_at"),
+        "chunks_total": len(chunks),
+        "chunks": chunks[:limit],
+    }

@@ -23,6 +23,46 @@ def _env_list(name: str, default: str) -> list[str]:
 
 
 @dataclass(frozen=True)
+class RagSettings:
+    """Параметры RAG-пайплайна: чанкинг pikabu-txt.md + эмбеддинги ollama + индексы."""
+
+    source_file: Path
+    output_dir: Path
+    ollama_base_url: str
+    embedding_model: str
+    min_tokens: int
+    max_tokens: int
+    overlap_tokens: int
+    chars_per_token: float
+    min_chunk_tokens: int
+    embed_batch_size: int
+    embed_timeout_sec: float
+
+
+def _resolve_path(path_value: str) -> Path:
+    """Абсолютные пути — как есть, относительные — от корня проекта."""
+    path = Path(path_value)
+    return path if path.is_absolute() else (ROOT_DIR / path)
+
+
+def _load_rag(raw: dict) -> RagSettings:
+    rag = raw.get("rag", {})
+    return RagSettings(
+        source_file=_resolve_path(str(rag.get("source_file", "pikabu-txt.md"))),
+        output_dir=_resolve_path(str(rag.get("output_dir", "server/data/rag"))),
+        ollama_base_url=str(rag.get("ollama_base_url", "http://127.0.0.1:11434")).rstrip("/"),
+        embedding_model=str(rag.get("embedding_model", "qwen3-embedding:0.6b")),
+        min_tokens=int(rag.get("min_tokens", 500)),
+        max_tokens=int(rag.get("max_tokens", 1000)),
+        overlap_tokens=int(rag.get("overlap_tokens", 150)),
+        chars_per_token=float(rag.get("chars_per_token", 3.0)),
+        min_chunk_tokens=int(rag.get("min_chunk_tokens", 50)),
+        embed_batch_size=int(rag.get("embed_batch_size", 16)),
+        embed_timeout_sec=float(rag.get("embed_timeout_sec", 300)),
+    )
+
+
+@dataclass(frozen=True)
 class Settings:
     # LLM
     deepseek_api_key: str
@@ -63,6 +103,9 @@ class Settings:
     database_path: Path
     summaries_dir: Path
 
+    # RAG
+    rag: RagSettings
+
     def public_config(self) -> dict:
         """Конфигурация без секретов — её отдаём в веб-клиент."""
         return {
@@ -90,6 +133,13 @@ class Settings:
                 }
                 for server in self.external_mcp_servers
             ],
+            "rag": {
+                "source_file": str(self.rag.source_file),
+                "ollama_base_url": self.rag.ollama_base_url,
+                "embedding_model": self.rag.embedding_model,
+                "min_tokens": self.rag.min_tokens,
+                "max_tokens": self.rag.max_tokens,
+            },
         }
 
 
@@ -101,10 +151,6 @@ def _load_file() -> dict:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     raw = _load_file()
-
-    def resolve(path_value: str) -> Path:
-        path = Path(path_value)
-        return path if path.is_absolute() else (ROOT_DIR / path)
 
     return Settings(
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", "").strip(),
@@ -132,6 +178,7 @@ def get_settings() -> Settings:
         chat_max_message_chars=int(raw.get("chat_max_message_chars", 4000)),
         allowed_screenshot_hosts=list(raw.get("allowed_screenshot_hosts", ["pikabu.ru"])),
         external_mcp_servers=list(raw.get("external_mcp_servers", [])),
-        database_path=resolve(str(raw.get("database_path", "server/data/pikabu.db"))),
-        summaries_dir=resolve(str(raw.get("summaries_dir", "server/data/summaries"))),
+        database_path=_resolve_path(str(raw.get("database_path", "server/data/pikabu.db"))),
+        summaries_dir=_resolve_path(str(raw.get("summaries_dir", "server/data/summaries"))),
+        rag=_load_rag(raw),
     )
