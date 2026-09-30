@@ -19,6 +19,19 @@
   "chat_rate_limit_per_minute": 20,
   "chat_max_message_chars": 4000,
   "allowed_screenshot_hosts": ["pikabu.ru"],
+  "rag": {
+    "source_file": "pikabu-txt.md",
+    "output_dir": "server/data/rag",
+    "ollama_base_url": "http://127.0.0.1:11434",
+    "embedding_model": "qwen3-embedding:0.6b",
+    "min_tokens": 500,
+    "max_tokens": 1000,
+    "overlap_tokens": 150,
+    "chars_per_token": 3.0,
+    "min_chunk_tokens": 50,
+    "embed_batch_size": 16,
+    "embed_timeout_sec": 300
+  },
   "external_mcp_servers": [
     {
       "name": "playwright",
