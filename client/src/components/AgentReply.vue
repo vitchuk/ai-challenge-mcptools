@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { linkifyText, shortLinkLabel } from '../links'
 import type { Post } from '../types'
 
 const props = defineProps<{ text: string; posts: Record<string, Post> }>()
@@ -25,22 +26,25 @@ const INLINE_RE = /\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*/g
 
 function parseInline(text: string): Segment[] {
   const segments: Segment[] = []
+  const pushPlain = (plain: string) => {
+    for (const part of linkifyText(plain)) segments.push(part)
+  }
   let lastIndex = 0
   let match: RegExpExecArray | null
   INLINE_RE.lastIndex = 0
   while ((match = INLINE_RE.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      segments.push({ text: text.slice(lastIndex, match.index) })
+      pushPlain(text.slice(lastIndex, match.index))
     }
     if (match[1] !== undefined && match[2] !== undefined) {
-      segments.push({ text: match[1], href: match[2] })
+      segments.push({ text: shortLinkLabel(match[2], match[1]), href: match[2] })
     } else if (match[3] !== undefined) {
       segments.push({ text: match[3], bold: true })
     }
     lastIndex = INLINE_RE.lastIndex
   }
   if (lastIndex < text.length) {
-    segments.push({ text: text.slice(lastIndex) })
+    pushPlain(text.slice(lastIndex))
   }
   return segments.filter((segment) => segment.text.length > 0)
 }
@@ -72,7 +76,7 @@ const blocks = computed<Block[]>(() => {
       const image = post?.images?.[0] ?? null
       result.push({
         kind: 'post',
-        title: boldMatch ? boldMatch[1] : storyMatch[1],
+        title: shortLinkLabel(href, boldMatch ? boldMatch[1] : storyMatch[1]),
         href,
         meta: cleanMeta(line, boldMatch),
         mediaImage: image,
@@ -98,9 +102,22 @@ const blocks = computed<Block[]>(() => {
             :href="segment.href"
             target="_blank"
             rel="noopener noreferrer"
-            class="text-indigo-300 hover:text-indigo-200"
+            class="inline-flex items-center gap-1 align-middle text-indigo-300 underline decoration-dotted underline-offset-2 hover:text-indigo-200"
           >
-            {{ segment.text }}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              aria-hidden="true"
+              class="h-3 w-3 shrink-0"
+            >
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            <span>{{ segment.text }}</span>
           </a>
           <strong v-else-if="segment.bold" class="font-semibold text-slate-100">{{ segment.text }}</strong>
           <span v-else>{{ segment.text }}</span>
