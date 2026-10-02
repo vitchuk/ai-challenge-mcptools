@@ -30,7 +30,8 @@
     "chars_per_token": 3.0,
     "min_chunk_tokens": 50,
     "embed_batch_size": 16,
-    "embed_timeout_sec": 300
+    "embed_timeout_sec": 300,
+    "chat_top_k": 4
   },
   "external_mcp_servers": [
     {

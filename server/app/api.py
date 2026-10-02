@@ -18,6 +18,9 @@ router = APIRouter()
 class ChatRequest(BaseModel):
     message: str = Field(default="", description="Сообщение пользователя")
     session_id: str | None = Field(default=None, max_length=128)
+    rag_strategy: str | None = Field(
+        default=None, max_length=64, description="Стратегия RAG для вкладки «Чат»; None — без RAG"
+    )
 
 
 @router.get("/status")
@@ -153,7 +156,7 @@ async def post_chat(
     x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
 ) -> dict:
     session_id = (payload.session_id or x_session_id or "default")[:128]
-    return await chat.run_chat(session_id, payload.message)
+    return await chat.run_chat(session_id, payload.message, payload.rag_strategy)
 
 
 @router.post("/chat/reset")

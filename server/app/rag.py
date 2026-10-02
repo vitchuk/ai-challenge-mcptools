@@ -22,6 +22,7 @@ from pathlib import Path
 
 import httpx
 
+from . import deepseek
 from .config import RagSettings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -486,6 +487,56 @@ async def search(query: str, *, strategy: str, top_k: int = 5) -> list[dict]:
     ]
     scored.sort(key=lambda item: item[0], reverse=True)
     return [{**index["chunks"][i], "score": round(score, 4)} for score, i in scored[: max(1, top_k)]]
+
+
+# --- RAG-чат (вкладка «Чат» при выбранной стратегии) ---
+
+
+RAG_SYSTEM_PROMPT = (
+    "Ты — ассистент по базе знаний pikabu.ru. Отвечай на русском языке, кратко и по делу, "
+    "опираясь ИСКЛЮЧИТЕЛЬНО на предоставленный контекст. "
+    "Если в контексте нет ответа на вопрос — честно скажи об этом и не выдумывай факты. "
+    "Ссылайся на статьи по URL из контекста, когда приводишь факты оттуда."
+)
+
+
+def _context_block(hits: list[dict]) -> str:
+    """Собирает контекст из найденных чанков для подмешивания в вопрос."""
+    blocks: list[str] = []
+    for hit in hits:
+        metadata = hit.get("metadata") or {}
+        header = f"[{hit['id']}] {metadata.get('title') or 'Без названия'}"
+        if metadata.get("url"):
+            header += f" — {metadata['url']}"
+        blocks.append(f"{header}\n{hit.get('text', '')}")
+    return "\n\n---\n\n".join(blocks)
+
+
+def _chunk_hit(hit: dict) -> dict:
+    """Чанк в формате для UI: score, метаданные и текст."""
+    return {
+        "id": hit["id"],
+        "score": hit["score"],
+        "tokens": hit.get("tokens"),
+        "metadata": hit.get("metadata") or {},
+        "text": hit.get("text", ""),
+    }
+
+
+async def build_rag_reply(message: str, strategy: str, history: list[dict]) -> dict:
+    """RAG-схема: вопрос → поиск релевантных чанков → объединение с вопросом → LLM → ответ."""
+    params = get_settings().rag
+    hits = await search(message, strategy=strategy, top_k=params.chat_top_k)
+    user_prompt = (
+        "Контекст из базы знаний (фрагменты статей pikabu):\n\n"
+        f"{_context_block(hits)}\n\n"
+        f"Вопрос пользователя: {message}"
+    )
+    messages: list[dict] = [{"role": "system", "content": RAG_SYSTEM_PROMPT}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": user_prompt})
+    reply = await deepseek.complete_messages(messages)
+    return {"reply": reply, "chunks": [_chunk_hit(hit) for hit in hits]}
 
 
 # --- CLI ---

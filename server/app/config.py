@@ -37,6 +37,7 @@ class RagSettings:
     min_chunk_tokens: int
     embed_batch_size: int
     embed_timeout_sec: float
+    chat_top_k: int
 
 
 def _resolve_path(path_value: str) -> Path:
@@ -59,6 +60,7 @@ def _load_rag(raw: dict) -> RagSettings:
         min_chunk_tokens=int(rag.get("min_chunk_tokens", 50)),
         embed_batch_size=int(rag.get("embed_batch_size", 16)),
         embed_timeout_sec=float(rag.get("embed_timeout_sec", 300)),
+        chat_top_k=int(rag.get("chat_top_k", 4)),
     )
 
 

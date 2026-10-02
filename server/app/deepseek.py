@@ -42,23 +42,19 @@ def get_client() -> AsyncOpenAI:
     return _client
 
 
-async def complete_text(
-    system_prompt: str,
-    user_prompt: str,
+async def complete_messages(
+    messages: list[dict],
     *,
     temperature: float = 0.3,
     max_tokens: int = 2000,
 ) -> str:
-    """Обычный запрос без инструментов — для саммаризации."""
+    """Запрос к LLM по готовому списку сообщений — без инструментов."""
     settings = get_settings()
     client = get_client()
     try:
         response = await client.chat.completions.create(
             model=settings.deepseek_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
         )
@@ -67,3 +63,21 @@ async def complete_text(
         raise LLMError(f"Ошибка DeepSeek API: {exc}") from exc
 
     return (response.choices[0].message.content or "").strip()
+
+
+async def complete_text(
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    temperature: float = 0.3,
+    max_tokens: int = 2000,
+) -> str:
+    """Обычный запрос без инструментов — для саммаризации."""
+    return await complete_messages(
+        [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )

@@ -105,6 +105,7 @@ export interface ToolCallEvent {
 export interface ChatResponse {
   reply: string
   tool_calls: ToolCallEvent[]
+  chunks?: RagChunkHit[]
   error?: string
 }
 
@@ -156,5 +157,46 @@ export interface ChatMessage {
   text: string
   tools?: ToolInfo[]
   toolCalls?: ToolCallEvent[]
+  chunks?: RagChunkHit[]
   error?: boolean
+}
+
+export interface RagStrategyInfo {
+  strategy: string
+  description: string | null
+  chunks: number
+  tokens_min: number
+  tokens_max: number
+  tokens_avg: number
+  articles: number | null
+  has_embeddings: boolean
+  embedding_model: string | null
+  embedding_dim: number | null
+  built_at: string | null
+  params: Record<string, number> | null
+}
+
+export interface RagStrategiesResponse {
+  strategies: RagStrategyInfo[]
+}
+
+export interface RagChunkMetadata {
+  chunk_id: string
+  url: string | null
+  author: string | null
+  rating: number | null
+  date: string | null
+  title: string | null
+  story_id: number | null
+  strategy: string
+  chunk_index: number
+  article_chunks: number
+}
+
+export interface RagChunkHit {
+  id: string
+  score: number
+  tokens: number | null
+  text: string
+  metadata: RagChunkMetadata
 }
