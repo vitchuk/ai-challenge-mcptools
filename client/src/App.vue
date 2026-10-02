@@ -2,13 +2,15 @@
 import { ref } from 'vue'
 import ChatView from './views/ChatView.vue'
 import McpView from './views/McpView.vue'
+import RagView from './views/RagView.vue'
 
-type Tab = 'chat' | 'mcp'
+type Tab = 'chat' | 'rag' | 'mcp'
 
 const tab = ref<Tab>('chat')
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'chat', label: 'Чат' },
+  { id: 'rag', label: 'RAG' },
   { id: 'mcp', label: 'MCP' },
 ]
 </script>
@@ -40,6 +42,7 @@ const tabs: { id: Tab; label: string }[] = [
 
     <main class="min-h-0 flex-1">
       <ChatView v-show="tab === 'chat'" />
+      <RagView v-show="tab === 'rag'" />
       <McpView v-show="tab === 'mcp'" />
     </main>
   </div>

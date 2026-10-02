@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../api'
-import { dataVersion } from '../store'
+import { dataVersion, ragStrategy, ragVersion } from '../store'
 import type { ChatMessage, ParsingStatus, Post, SummaryData, ToolCallEvent, ToolInfo } from '../types'
 import PostCard from '../components/PostCard.vue'
 import ToolCallList from '../components/ToolCallList.vue'
 import AgentReply from '../components/AgentReply.vue'
+import RagSources from '../components/RagSources.vue'
 
 const messages = ref<ChatMessage[]>([])
 const input = ref('')
@@ -187,13 +188,14 @@ async function send() {
 
   busy.value = true
   try {
-    const response = await api.sendChat(text)
+    const response = await api.sendChat(text, ragStrategy.value || undefined)
     indexToolResults(response.tool_calls)
     addMessage({
       role: 'assistant',
       kind: 'text',
       text: response.reply,
       toolCalls: response.tool_calls,
+      chunks: response.chunks,
       error: Boolean(response.error),
     })
     if (response.tool_calls.some((call) => call.name === 'summarize_best_posts' || call.name === 'save_summary')) {
@@ -229,6 +231,16 @@ watch(dataVersion, async () => {
   await refreshStatus()
 })
 
+watch(ragVersion, async () => {
+  // смена стратегии RAG — начинаем диалог с чистого листа (локально и на сервере)
+  messages.value = []
+  try {
+    await api.resetChat()
+  } catch {
+    // не критично: серверная история перезапишется при следующем запросе
+  }
+})
+
 onMounted(async () => {
   await refreshStatus()
   tickTimer = window.setInterval(tick, 1000)
@@ -260,6 +272,15 @@ onUnmounted(() => {
 
     <div ref="listEl" class="flex-1 overflow-y-auto p-4">
       <div class="mx-auto w-full max-w-3xl space-y-3">
+        <!-- Индикатор RAG-режима -->
+        <div
+          v-if="ragStrategy"
+          class="rounded-lg border border-indigo-900/60 bg-indigo-950/30 px-3 py-1.5 text-xs text-indigo-200"
+        >
+          RAG включён: стратегия <span class="font-mono text-indigo-100">{{ ragStrategy }}</span> —
+          ответы строятся по найденным чанкам. Сменить стратегию можно на вкладке «RAG».
+        </div>
+
         <!-- Заглушка: нет статей -->
         <div v-if="!hasArticles" class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center">
           <p class="text-sm text-slate-300">Еще не спарсили</p>
@@ -308,6 +329,7 @@ onUnmounted(() => {
             <ToolCallList v-if="message.toolCalls?.length" :calls="message.toolCalls" />
             <AgentReply v-if="message.role === 'assistant' && !message.error" :text="message.text" :posts="postStore" />
             <template v-else>{{ message.text }}</template>
+            <RagSources v-if="message.chunks?.length" :chunks="message.chunks" />
           </div>
 
           <div v-else class="w-full rounded-xl border border-slate-800 bg-slate-900/70 p-4">
@@ -326,7 +348,9 @@ onUnmounted(() => {
 
         <div v-if="busy" class="flex justify-start">
           <div class="rounded-2xl border border-slate-800 bg-slate-800/60 px-4 py-2 text-sm text-slate-400">
-            <span class="animate-pulse">Агент думает и вызывает тулы…</span>
+            <span class="animate-pulse">
+              {{ ragStrategy ? 'Ищу релевантные чанки и формирую ответ…' : 'Агент думает и вызывает тулы…' }}
+            </span>
           </div>
         </div>
       </div>

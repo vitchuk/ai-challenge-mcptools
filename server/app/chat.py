@@ -7,7 +7,7 @@ import logging
 import time
 from collections import defaultdict, deque
 
-from . import db, deepseek, mcp_manager, tools
+from . import db, deepseek, mcp_manager, rag, tools
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -111,9 +111,27 @@ def _parse_arguments(raw: str | None) -> dict:
         return {}
 
 
-async def run_chat(session_id: str, user_message: str) -> dict:
+async def _run_rag_chat(session_id: str, user_message: str, strategy: str) -> dict:
+    """Чат в RAG-режиме: чанки выбранной стратегии подмешиваются в вопрос к LLM."""
+    try:
+        result = await rag.build_rag_reply(user_message, strategy, list(_sessions[session_id]))
+    except rag.RagError as exc:
+        return {"reply": str(exc), "tool_calls": [], "chunks": [], "error": "rag_error"}
+    except deepseek.LLMError as exc:
+        return {"reply": str(exc), "tool_calls": [], "chunks": [], "error": "llm_error"}
+    except Exception as exc:  # noqa: BLE001 — не роняем сервер из-за ошибок RAG
+        logger.warning("Ошибка RAG-чата: %s", exc)
+        return {"reply": f"Ошибка RAG-чата: {exc}", "tool_calls": [], "chunks": [], "error": "rag_error"}
+
+    _push_history(session_id, {"role": "user", "content": user_message})
+    _push_history(session_id, {"role": "assistant", "content": result["reply"]})
+    return {"reply": result["reply"], "tool_calls": [], "chunks": result["chunks"]}
+
+
+async def run_chat(session_id: str, user_message: str, rag_strategy: str | None = None) -> dict:
     settings = get_settings()
     user_message = (user_message or "").strip()
+    rag_strategy = (rag_strategy or "").strip() or None
 
     if not user_message:
         return {"reply": "Пустое сообщение.", "tool_calls": [], "error": "empty"}
@@ -138,6 +156,9 @@ async def run_chat(session_id: str, user_message: str) -> dict:
             "tool_calls": [],
             "error": "llm_not_configured",
         }
+
+    if rag_strategy:
+        return await _run_rag_chat(session_id, user_message, rag_strategy)
 
     client = deepseek.get_client()
     messages: list[dict] = [{"role": "system", "content": _system_prompt()}]
@@ -188,4 +209,4 @@ async def run_chat(session_id: str, user_message: str) -> dict:
     final_reply = final_reply or "Модель вернула пустой ответ."
     _push_history(session_id, {"role": "user", "content": user_message})
     _push_history(session_id, {"role": "assistant", "content": final_reply})
-    return {"reply": final_reply, "tool_calls": tool_events}
+    return {"reply": final_reply, "tool_calls": tool_events, "chunks": []}
