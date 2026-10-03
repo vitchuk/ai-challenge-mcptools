@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from . import chat, db, mcp_manager, mcp_server, rag, scheduler, tools
+from . import chat, db, mcp_manager, mcp_server, rag, rag_pipeline, scheduler, tools
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -15,11 +15,39 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class RagOptionsPayload(BaseModel):
+    """Параметры стратегии поиска RAG (retrieval pipeline) для вкладки «Чат»."""
+
+    strategy: str = Field(default="baseline", max_length=64)
+    top_k: int | None = Field(default=None, ge=1, le=100)
+    top_k_before: int | None = Field(default=None, ge=1, le=100)
+    top_k_after: int | None = Field(default=None, ge=1, le=100)
+    top_k_final: int | None = Field(default=None, ge=1, le=100)
+    similarity_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    reranker_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    def to_options(self) -> rag_pipeline.RetrievalOptions:
+        return rag_pipeline.RetrievalOptions(
+            strategy=self.strategy,
+            top_k=self.top_k,
+            top_k_before=self.top_k_before,
+            top_k_after=self.top_k_after,
+            top_k_final=self.top_k_final,
+            similarity_threshold=self.similarity_threshold,
+            reranker_threshold=self.reranker_threshold,
+        )
+
+
 class ChatRequest(BaseModel):
     message: str = Field(default="", description="Сообщение пользователя")
     session_id: str | None = Field(default=None, max_length=128)
     rag_strategy: str | None = Field(
         default=None, max_length=64, description="Стратегия RAG для вкладки «Чат»; None — без RAG"
+    )
+    rag_options: RagOptionsPayload | None = Field(
+        default=None,
+        description="Стратегия поиска RAG: baseline / query-rewrite / similarity-filter / "
+        "query-rewrite-rerank; None — baseline-поведение",
     )
 
 
@@ -156,7 +184,8 @@ async def post_chat(
     x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
 ) -> dict:
     session_id = (payload.session_id or x_session_id or "default")[:128]
-    return await chat.run_chat(session_id, payload.message, payload.rag_strategy)
+    rag_options = payload.rag_options.to_options() if payload.rag_options else None
+    return await chat.run_chat(session_id, payload.message, payload.rag_strategy, rag_options)
 
 
 @router.post("/chat/reset")
@@ -171,8 +200,14 @@ async def reset_chat(
 
 @router.get("/rag/strategies")
 async def get_rag_strategies() -> dict:
-    """Собранные RAG-индексы по стратегиям чанкинга (для переключения стратегий в UI)."""
-    return {"strategies": rag.list_indexes()}
+    """Собранные RAG-индексы (чанкинг) + доступные стратегии поиска для UI."""
+    return {
+        "strategies": rag.list_indexes(),
+        "retrieval_strategies": [
+            {"id": key, "description": value}
+            for key, value in rag_pipeline.RETRIEVAL_STRATEGIES.items()
+        ],
+    }
 
 
 @router.get("/rag/strategies/{strategy}")

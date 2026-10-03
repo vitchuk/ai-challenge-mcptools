@@ -7,6 +7,7 @@ import type {
   LatestSummaryResponse,
   McpServerInfo,
   ParsingStatus,
+  RagRetrievalOptions,
   RagStrategiesResponse,
   ThemesResponse,
   ToolsResponse,
@@ -54,13 +55,26 @@ export const api = {
     request<McpServerInfo>(`/api/mcp-servers/${encodeURIComponent(name)}/enable`, { method: 'POST' }),
   disableMcpServer: (name: string) =>
     request<McpServerInfo>(`/api/mcp-servers/${encodeURIComponent(name)}/disable`, { method: 'POST' }),
-  sendChat: (message: string, ragStrategy?: string) =>
+  sendChat: (message: string, ragStrategy?: string, ragOptions?: RagRetrievalOptions) =>
     request<ChatResponse>('/api/chat', {
       method: 'POST',
       body: JSON.stringify({
         message,
         session_id: getSessionId(),
         rag_strategy: ragStrategy || null,
+        rag_options: ragOptions
+          ? {
+              strategy: ragOptions.strategy,
+              top_k: ragOptions.top_k,
+              top_k_before: ragOptions.top_k_before,
+              top_k_after: ragOptions.top_k_after,
+              top_k_final: ragOptions.top_k_final,
+              similarity_threshold: ragOptions.similarity_threshold,
+              reranker_threshold: ragOptions.reranker_threshold_enabled
+                ? ragOptions.reranker_threshold
+                : null,
+            }
+          : null,
       }),
     }),
   resetChat: () =>

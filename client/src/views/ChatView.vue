@@ -1,12 +1,24 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../api'
-import { dataVersion, ragStrategy, ragVersion } from '../store'
+import { dataVersion, ragRetrieval, ragStrategy, ragVersion } from '../store'
 import type { ChatMessage, ParsingStatus, Post, SummaryData, ToolCallEvent, ToolInfo } from '../types'
 import PostCard from '../components/PostCard.vue'
 import ToolCallList from '../components/ToolCallList.vue'
 import AgentReply from '../components/AgentReply.vue'
 import RagSources from '../components/RagSources.vue'
+import RagPipelineInfo from '../components/RagPipelineInfo.vue'
+
+const RETRIEVAL_LABELS: Record<string, string> = {
+  baseline: 'Baseline',
+  'query-rewrite': 'Query Rewrite',
+  'similarity-filter': 'Similarity Filter',
+  'query-rewrite-rerank': 'Query Rewrite + Reranker',
+}
+
+const retrievalLabel = computed(
+  () => RETRIEVAL_LABELS[ragRetrieval.value.strategy] ?? ragRetrieval.value.strategy,
+)
 
 const messages = ref<ChatMessage[]>([])
 const input = ref('')
@@ -188,7 +200,11 @@ async function send() {
 
   busy.value = true
   try {
-    const response = await api.sendChat(text, ragStrategy.value || undefined)
+    const response = await api.sendChat(
+      text,
+      ragStrategy.value || undefined,
+      ragStrategy.value ? ragRetrieval.value : undefined,
+    )
     indexToolResults(response.tool_calls)
     addMessage({
       role: 'assistant',
@@ -196,6 +212,7 @@ async function send() {
       text: response.reply,
       toolCalls: response.tool_calls,
       chunks: response.chunks,
+      ragDebug: response.debug,
       error: Boolean(response.error),
     })
     if (response.tool_calls.some((call) => call.name === 'summarize_best_posts' || call.name === 'save_summary')) {
@@ -277,8 +294,9 @@ onUnmounted(() => {
           v-if="ragStrategy"
           class="rounded-lg border border-indigo-900/60 bg-indigo-950/30 px-3 py-1.5 text-xs text-indigo-200"
         >
-          RAG включён: стратегия <span class="font-mono text-indigo-100">{{ ragStrategy }}</span> —
-          ответы строятся по найденным чанкам. Сменить стратегию можно на вкладке «RAG».
+          RAG включён: индекс <span class="font-mono text-indigo-100">{{ ragStrategy }}</span>, поиск
+          <span class="text-indigo-100">{{ retrievalLabel }}</span> — ответы строятся по найденным чанкам.
+          Сменить стратегию можно на вкладке «RAG».
         </div>
 
         <!-- Заглушка: нет статей -->
@@ -329,6 +347,7 @@ onUnmounted(() => {
             <ToolCallList v-if="message.toolCalls?.length" :calls="message.toolCalls" />
             <AgentReply v-if="message.role === 'assistant' && !message.error" :text="message.text" :posts="postStore" />
             <template v-else>{{ message.text }}</template>
+            <RagPipelineInfo v-if="message.ragDebug" :debug="message.ragDebug" />
             <RagSources v-if="message.chunks?.length" :chunks="message.chunks" />
           </div>
 

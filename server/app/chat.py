@@ -7,7 +7,7 @@ import logging
 import time
 from collections import defaultdict, deque
 
-from . import db, deepseek, mcp_manager, rag, tools
+from . import db, deepseek, mcp_manager, rag, rag_pipeline, tools
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -111,10 +111,17 @@ def _parse_arguments(raw: str | None) -> dict:
         return {}
 
 
-async def _run_rag_chat(session_id: str, user_message: str, strategy: str) -> dict:
+async def _run_rag_chat(
+    session_id: str,
+    user_message: str,
+    strategy: str,
+    options: rag_pipeline.RetrievalOptions | None = None,
+) -> dict:
     """Чат в RAG-режиме: чанки выбранной стратегии подмешиваются в вопрос к LLM."""
     try:
-        result = await rag.build_rag_reply(user_message, strategy, list(_sessions[session_id]))
+        result = await rag.build_rag_reply(
+            user_message, strategy, list(_sessions[session_id]), options
+        )
     except rag.RagError as exc:
         return {"reply": str(exc), "tool_calls": [], "chunks": [], "error": "rag_error"}
     except deepseek.LLMError as exc:
@@ -125,10 +132,20 @@ async def _run_rag_chat(session_id: str, user_message: str, strategy: str) -> di
 
     _push_history(session_id, {"role": "user", "content": user_message})
     _push_history(session_id, {"role": "assistant", "content": result["reply"]})
-    return {"reply": result["reply"], "tool_calls": [], "chunks": result["chunks"]}
+    return {
+        "reply": result["reply"],
+        "tool_calls": [],
+        "chunks": result["chunks"],
+        "debug": result.get("debug"),
+    }
 
 
-async def run_chat(session_id: str, user_message: str, rag_strategy: str | None = None) -> dict:
+async def run_chat(
+    session_id: str,
+    user_message: str,
+    rag_strategy: str | None = None,
+    rag_options: rag_pipeline.RetrievalOptions | None = None,
+) -> dict:
     settings = get_settings()
     user_message = (user_message or "").strip()
     rag_strategy = (rag_strategy or "").strip() or None
@@ -158,7 +175,7 @@ async def run_chat(session_id: str, user_message: str, rag_strategy: str | None 
         }
 
     if rag_strategy:
-        return await _run_rag_chat(session_id, user_message, rag_strategy)
+        return await _run_rag_chat(session_id, user_message, rag_strategy, rag_options)
 
     client = deepseek.get_client()
     messages: list[dict] = [{"role": "system", "content": _system_prompt()}]

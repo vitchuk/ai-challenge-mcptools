@@ -15,13 +15,17 @@ function scoreLabel(score: number): string {
     </summary>
     <ul class="mt-2 space-y-2">
       <li
-        v-for="chunk in chunks"
+        v-for="(chunk, index) in chunks"
         :key="chunk.id"
         class="rounded border border-slate-800 bg-slate-900/60 px-2.5 py-2"
       >
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <span class="font-mono text-slate-400">#{{ index + 1 }}</span>
           <span class="font-mono text-emerald-300">{{ chunk.id }}</span>
-          <span class="font-mono text-indigo-300">score {{ scoreLabel(chunk.score) }}</span>
+          <span class="font-mono text-indigo-300">similarity {{ scoreLabel(chunk.score) }}</span>
+          <span v-if="chunk.reranker_score !== null && chunk.reranker_score !== undefined" class="font-mono text-violet-300">
+            reranker {{ scoreLabel(chunk.reranker_score) }}
+          </span>
           <span v-if="chunk.tokens" class="text-slate-500">~{{ chunk.tokens }} токенов</span>
         </div>
         <p class="mt-1 text-xs text-slate-200">

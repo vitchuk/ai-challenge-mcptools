@@ -22,7 +22,7 @@ from pathlib import Path
 
 import httpx
 
-from . import deepseek
+from . import deepseek, rag_pipeline
 from .config import RagSettings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -513,20 +513,86 @@ def _context_block(hits: list[dict]) -> str:
 
 
 def _chunk_hit(hit: dict) -> dict:
-    """Чанк в формате для UI: score, метаданные и текст."""
+    """Чанк в формате для UI: similarity score, reranker score, метаданные и текст."""
     return {
         "id": hit["id"],
         "score": hit["score"],
+        "reranker_score": hit.get("reranker_score"),
         "tokens": hit.get("tokens"),
         "metadata": hit.get("metadata") or {},
         "text": hit.get("text", ""),
     }
 
 
-async def build_rag_reply(message: str, strategy: str, history: list[dict]) -> dict:
-    """RAG-схема: вопрос → поиск релевантных чанков → объединение с вопросом → LLM → ответ."""
+def _retriever(strategy: str) -> rag_pipeline.Retriever:
+    """Замыкает rag.search под сигнатуру, ожидаемую rag_pipeline."""
+
+    async def retrieve(query: str, top_k: int) -> list[dict]:
+        return await search(query, strategy=strategy, top_k=top_k)
+
+    return retrieve
+
+
+def _empty_hits_reply(debug: dict) -> str:
+    """Понятный ответ, когда после фильтрации/reranker не осталось фрагментов."""
+    counts = debug.get("counts") or {}
+    params = debug.get("params") or {}
+    retrieved = counts.get("retrieved", 0)
+    if not retrieved:
+        return "По запросу не найдено ни одного фрагмента в индексе."
+    if params.get("reranker_threshold") is not None and counts.get("after_reranker_filter") == 0:
+        return (
+            f"Reranker отсёк все кандидаты порогом {params['reranker_threshold']} "
+            f"({counts.get('after_similarity_filter', 0)} из {retrieved}). Снизьте reranker threshold."
+        )
+    threshold = params.get("similarity_threshold")
+    return (
+        f"Все найденные фрагменты ({retrieved}) отфильтрованы порогом similarity "
+        f"{threshold}. Снизьте similarity threshold."
+    )
+
+
+async def build_rag_reply(
+    message: str,
+    strategy: str,
+    history: list[dict],
+    options: rag_pipeline.RetrievalOptions | None = None,
+) -> dict:
+    """RAG-схема: вопрос → поиск релевантных чанков → объединение с вопросом → LLM → ответ.
+
+    options=None сохраняет прежнее baseline-поведение; иначе выполняется выбранная
+    стратегия поиска (query rewrite / similarity filter / reranker) из rag_pipeline.
+    """
     params = get_settings().rag
-    hits = await search(message, strategy=strategy, top_k=params.chat_top_k)
+    if options is None:
+        hits = await search(message, strategy=strategy, top_k=params.chat_top_k)
+        count = len(hits)
+        debug = {
+            "retrieval_strategy": "baseline",
+            "original_query": message,
+            "rewritten_query": None,
+            "rewrite_fallback": False,
+            "reranker_fallback": None,
+            "params": {"top_k": params.chat_top_k},
+            "counts": {
+                "retrieved": count,
+                "after_similarity_filter": count,
+                "after_reranker_filter": count,
+                "final": count,
+            },
+        }
+    else:
+        hits, debug = await rag_pipeline.run_retrieval(
+            message,
+            _retriever(strategy),
+            options,
+            default_top_k=params.chat_top_k,
+            history=history,
+        )
+
+    if not hits:
+        return {"reply": _empty_hits_reply(debug), "chunks": [], "debug": debug}
+
     user_prompt = (
         "Контекст из базы знаний (фрагменты статей pikabu):\n\n"
         f"{_context_block(hits)}\n\n"
@@ -536,7 +602,7 @@ async def build_rag_reply(message: str, strategy: str, history: list[dict]) -> d
     messages.extend(history)
     messages.append({"role": "user", "content": user_prompt})
     reply = await deepseek.complete_messages(messages)
-    return {"reply": reply, "chunks": [_chunk_hit(hit) for hit in hits]}
+    return {"reply": reply, "chunks": [_chunk_hit(hit) for hit in hits], "debug": debug}
 
 
 # --- CLI ---
