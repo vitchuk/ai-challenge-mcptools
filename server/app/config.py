@@ -141,6 +141,7 @@ class Settings:
                 "embedding_model": self.rag.embedding_model,
                 "min_tokens": self.rag.min_tokens,
                 "max_tokens": self.rag.max_tokens,
+                "chat_top_k": self.rag.chat_top_k,
             },
         }
 

@@ -93,6 +93,14 @@ export interface AppConfig {
   chat_max_message_chars: number
   allowed_screenshot_hosts: string[]
   external_mcp_servers: ExternalMcpServerConfig[]
+  rag: {
+    source_file: string
+    ollama_base_url: string
+    embedding_model: string
+    min_tokens: number
+    max_tokens: number
+    chat_top_k: number
+  }
 }
 
 export interface ToolCallEvent {
@@ -106,6 +114,7 @@ export interface ChatResponse {
   reply: string
   tool_calls: ToolCallEvent[]
   chunks?: RagChunkHit[]
+  debug?: RagPipelineDebug | null
   error?: string
 }
 
@@ -158,6 +167,7 @@ export interface ChatMessage {
   tools?: ToolInfo[]
   toolCalls?: ToolCallEvent[]
   chunks?: RagChunkHit[]
+  ragDebug?: RagPipelineDebug | null
   error?: boolean
 }
 
@@ -178,6 +188,40 @@ export interface RagStrategyInfo {
 
 export interface RagStrategiesResponse {
   strategies: RagStrategyInfo[]
+  retrieval_strategies?: { id: string; description: string }[]
+}
+
+/** Стратегии поиска (retrieval pipeline). Не путать со стратегиями чанкинга. */
+export type RagRetrievalStrategy =
+  | 'baseline'
+  | 'query-rewrite'
+  | 'similarity-filter'
+  | 'query-rewrite-rerank'
+
+export interface RagRetrievalOptions {
+  strategy: RagRetrievalStrategy
+  top_k: number
+  top_k_before: number
+  top_k_after: number
+  top_k_final: number
+  similarity_threshold: number
+  reranker_threshold_enabled: boolean
+  reranker_threshold: number
+}
+
+export interface RagPipelineDebug {
+  retrieval_strategy: string
+  original_query: string
+  rewritten_query: string | null
+  rewrite_fallback: boolean
+  reranker_fallback: boolean | null
+  params: Record<string, number | null>
+  counts: {
+    retrieved: number
+    after_similarity_filter: number
+    after_reranker_filter: number
+    final: number
+  }
 }
 
 export interface RagChunkMetadata {
@@ -196,6 +240,7 @@ export interface RagChunkMetadata {
 export interface RagChunkHit {
   id: string
   score: number
+  reranker_score?: number | null
   tokens: number | null
   text: string
   metadata: RagChunkMetadata
