@@ -3,13 +3,22 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../api'
 import { parseRagCitations } from '../citations'
 import { dataVersion, ragRetrieval, ragStrategy, ragVersion } from '../store'
-import type { ChatMessage, ParsingStatus, Post, SummaryData, ToolCallEvent, ToolInfo } from '../types'
+import type {
+  ChatMessage,
+  ParsingStatus,
+  Post,
+  SummaryData,
+  TaskState,
+  ToolCallEvent,
+  ToolInfo,
+} from '../types'
 import PostCard from '../components/PostCard.vue'
 import ToolCallList from '../components/ToolCallList.vue'
 import AgentReply from '../components/AgentReply.vue'
 import RagSources from '../components/RagSources.vue'
 import RagPipelineInfo from '../components/RagPipelineInfo.vue'
 import RagSettingsPanel from '../components/RagSettingsPanel.vue'
+import TaskStatePanel from '../components/TaskStatePanel.vue'
 
 const RETRIEVAL_LABELS: Record<string, string> = {
   baseline: 'Baseline',
@@ -27,6 +36,7 @@ const input = ref('')
 const busy = ref(false)
 const listEl = ref<HTMLElement | null>(null)
 const postStore = ref<Record<string, Post>>({})
+const taskState = ref<TaskState | null>(null)
 let nextId = 1
 
 const articles = ref<Post[]>([])
@@ -189,6 +199,35 @@ async function showToolsHelp() {
   }
 }
 
+async function loadChatHistory() {
+  try {
+    const data = await api.getChatHistory()
+    taskState.value = data.task_state
+    if (data.messages.length) {
+      messages.value = data.messages.map((message) => ({
+        id: nextId++,
+        role: message.role,
+        kind: 'text' as const,
+        text: message.content,
+        citations: message.role === 'assistant' ? parseRagCitations(message.content) : [],
+      }))
+      await scrollDown()
+    }
+  } catch {
+    // история недоступна — начинаем с пустого диалога
+  }
+}
+
+async function resetDialog() {
+  messages.value = []
+  taskState.value = null
+  try {
+    await api.resetChat()
+  } catch {
+    // не критично: серверная история перезапишется при следующем запросе
+  }
+}
+
 async function send() {
   const text = input.value.trim()
   if (!text || busy.value) return
@@ -200,6 +239,7 @@ async function send() {
     return
   }
 
+  const isRag = Boolean(ragStrategy.value)
   busy.value = true
   try {
     const response = await api.sendChat(
@@ -208,6 +248,7 @@ async function send() {
       ragStrategy.value ? ragRetrieval.value : undefined,
     )
     indexToolResults(response.tool_calls)
+    if (response.task_state) taskState.value = response.task_state
     addMessage({
       role: 'assistant',
       kind: 'text',
@@ -216,6 +257,8 @@ async function send() {
       chunks: response.chunks,
       citations: response.chunks?.length ? parseRagCitations(response.reply) : [],
       ragDebug: response.debug,
+      rag: isRag && !response.error,
+      taskState: response.task_state ?? null,
       error: Boolean(response.error),
     })
     if (response.tool_calls.some((call) => call.name === 'summarize_best_posts' || call.name === 'save_summary')) {
@@ -254,6 +297,7 @@ watch(dataVersion, async () => {
 watch(ragVersion, async () => {
   // смена стратегии RAG — начинаем диалог с чистого листа (локально и на сервере)
   messages.value = []
+  taskState.value = null
   try {
     await api.resetChat()
   } catch {
@@ -262,7 +306,7 @@ watch(ragVersion, async () => {
 })
 
 onMounted(async () => {
-  await refreshStatus()
+  await Promise.all([refreshStatus(), loadChatHistory()])
   tickTimer = window.setInterval(tick, 1000)
 })
 
@@ -302,6 +346,9 @@ onUnmounted(() => {
           <span class="text-indigo-100">{{ retrievalLabel }}</span> — ответы строятся по найденным чанкам.
           Сменить стратегию можно на панели справа.
         </div>
+
+        <!-- Память задачи (цель / уточнения / ограничения) -->
+        <TaskStatePanel v-if="ragStrategy && taskState" :state="taskState" />
 
         <!-- Заглушка: нет статей -->
         <div v-if="!hasArticles" class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center">
@@ -352,7 +399,11 @@ onUnmounted(() => {
             <AgentReply v-if="message.role === 'assistant' && !message.error" :text="message.text" :posts="postStore" />
             <template v-else>{{ message.text }}</template>
             <RagPipelineInfo v-if="message.ragDebug" :debug="message.ragDebug" />
-            <RagSources v-if="message.chunks?.length" :chunks="message.chunks" :citations="message.citations" />
+            <RagSources
+              v-if="message.rag"
+              :chunks="message.chunks ?? []"
+              :citations="message.citations"
+            />
           </div>
 
           <div v-else class="w-full rounded-xl border border-slate-800 bg-slate-900/70 p-4">
@@ -391,6 +442,14 @@ onUnmounted(() => {
             @click="useSuggestion(suggestion)"
           >
             {{ suggestion }}
+          </button>
+          <button
+            type="button"
+            :disabled="busy || !messages.length"
+            class="ml-auto rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-400 transition hover:border-red-500 hover:text-red-300 disabled:opacity-40"
+            @click="resetDialog"
+          >
+            Новый диалог
           </button>
         </div>
         <div class="flex items-end gap-2">

@@ -22,6 +22,9 @@ function quotedSegments(chunk: RagChunkHit): HighlightSegment[] {
     <summary class="cursor-pointer text-xs font-medium uppercase tracking-wide text-slate-400">
       Источники RAG ({{ chunks.length }})
     </summary>
+    <p v-if="!chunks.length" class="mt-2 text-xs text-amber-300/90">
+      Источники: релевантные фрагменты в базе знаний не найдены.
+    </p>
     <ul class="mt-2 space-y-2">
       <li
         v-for="(chunk, index) in chunks"

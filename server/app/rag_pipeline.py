@@ -21,6 +21,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from . import deepseek
+from .task_state import format_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +93,14 @@ _MAX_REWRITE_CHARS = 400
 _REWRITE_HISTORY_MESSAGES = 6
 
 
-async def rewrite_query(query: str, history: list[dict] | None = None) -> str:
+async def rewrite_query(
+    query: str,
+    history: list[dict] | None = None,
+    task_state: dict | None = None,
+) -> str:
     """Переписывает вопрос в поисковый запрос.
 
+    Состояние задачи (`task_state`) помогает раскрыть термины и местоимения.
     При сбое LLM/пустом ответе бросает LLMError/PipelineError — вызывающий код
     делает fallback на исходный запрос.
     """
@@ -107,6 +113,9 @@ async def rewrite_query(query: str, history: list[dict] | None = None) -> str:
         label = "Пользователь" if role == "user" else "Ассистент"
         context_lines.append(f"{label}: {content[:300]}")
     prompt = ""
+    state_block = format_for_prompt(task_state)
+    if state_block:
+        prompt += state_block + "\n\n"
     if context_lines:
         prompt += "История диалога (для контекста):\n" + "\n".join(context_lines) + "\n\n"
     prompt += f"Вопрос пользователя: {query}\n\nПереписанный поисковый запрос:"
@@ -235,6 +244,7 @@ async def run_retrieval(
     *,
     default_top_k: int = 5,
     history: list[dict] | None = None,
+    task_state: dict | None = None,
 ) -> tuple[list[dict], dict]:
     """Выполняет стратегию поиска; возвращает (финальные чанки, debug-словарь)."""
     options.validate()
@@ -245,7 +255,7 @@ async def run_retrieval(
 
     if options.strategy in ("query-rewrite", "query-rewrite-rerank"):
         try:
-            rewritten_query = await rewrite_query(original_query, history)
+            rewritten_query = await rewrite_query(original_query, history, task_state)
             search_query = rewritten_query
         except (deepseek.LLMError, PipelineError) as exc:
             logger.warning("Query rewrite не удался, используем исходный запрос: %s", exc)

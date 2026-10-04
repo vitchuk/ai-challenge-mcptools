@@ -110,12 +110,31 @@ export interface ToolCallEvent {
   result?: string
 }
 
+export interface TaskState {
+  goal: string | null
+  clarifications: string[]
+  constraints: string[]
+  updated_at?: string | null
+}
+
 export interface ChatResponse {
   reply: string
   tool_calls: ToolCallEvent[]
   chunks?: RagChunkHit[]
   debug?: RagPipelineDebug | null
+  task_state?: TaskState | null
   error?: string
+}
+
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatHistoryResponse {
+  session_id: string
+  messages: ChatHistoryMessage[]
+  task_state: TaskState | null
 }
 
 export interface ArticlesResponse {
@@ -174,6 +193,8 @@ export interface ChatMessage {
   chunks?: RagChunkHit[]
   citations?: RagCitation[]
   ragDebug?: RagPipelineDebug | null
+  rag?: boolean
+  taskState?: TaskState | null
   error?: boolean
 }
 

@@ -7,12 +7,11 @@ import logging
 import time
 from collections import defaultdict, deque
 
-from . import db, deepseek, mcp_manager, rag, rag_pipeline, tools
+from . import chat_store, db, deepseek, mcp_manager, rag, rag_pipeline, task_state, tools
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_sessions: dict[str, list[dict]] = defaultdict(list)
 _rate_limits: dict[str, deque[float]] = defaultdict(deque)
 
 RESULT_PREVIEW_CHARS = 600
@@ -75,16 +74,23 @@ def _check_rate_limit(session_id: str) -> bool:
     return True
 
 
-def _push_history(session_id: str, message: dict) -> None:
-    limit = get_settings().chat_history_limit
-    history = _sessions[session_id]
-    history.append(message)
-    if len(history) > limit:
-        del history[: len(history) - limit]
+def _load_history(session_id: str) -> list[dict]:
+    """История диалога из SQLite (последние chat_history_limit сообщений)."""
+    return chat_store.load_history(session_id, get_settings().chat_history_limit)
 
 
 def reset_session(session_id: str) -> None:
-    _sessions.pop(session_id, None)
+    """Очищает историю и память задачи сессии."""
+    chat_store.clear_session(session_id)
+
+
+def load_session(session_id: str) -> dict:
+    """Снимок сессии для восстановления UI: сообщения + память задачи."""
+    return {
+        "session_id": session_id,
+        "messages": _load_history(session_id),
+        "task_state": chat_store.load_task_state(session_id),
+    }
 
 
 def _assistant_message_payload(message) -> dict:
@@ -117,26 +123,52 @@ async def _run_rag_chat(
     strategy: str,
     options: rag_pipeline.RetrievalOptions | None = None,
 ) -> dict:
-    """Чат в RAG-режиме: чанки выбранной стратегии подмешиваются в вопрос к LLM."""
+    """Чат в RAG-режиме: чанки выбранной стратегии и память задачи подмешиваются в вопрос к LLM."""
+    history = _load_history(session_id)
+    previous_state = chat_store.load_task_state(session_id)
     try:
-        result = await rag.build_rag_reply(
-            user_message, strategy, list(_sessions[session_id]), options
-        )
+        state = await task_state.update_state(user_message, history, previous_state)
+    except Exception as exc:  # noqa: BLE001 — память задачи не должна ронять чат
+        logger.warning("Ошибка обновления памяти задачи: %s", exc)
+        state = previous_state or task_state.empty_state()
+
+    try:
+        result = await rag.build_rag_reply(user_message, strategy, history, options, state)
     except rag.RagError as exc:
-        return {"reply": str(exc), "tool_calls": [], "chunks": [], "error": "rag_error"}
+        return {
+            "reply": str(exc),
+            "tool_calls": [],
+            "chunks": [],
+            "task_state": state,
+            "error": "rag_error",
+        }
     except deepseek.LLMError as exc:
-        return {"reply": str(exc), "tool_calls": [], "chunks": [], "error": "llm_error"}
+        return {
+            "reply": str(exc),
+            "tool_calls": [],
+            "chunks": [],
+            "task_state": state,
+            "error": "llm_error",
+        }
     except Exception as exc:  # noqa: BLE001 — не роняем сервер из-за ошибок RAG
         logger.warning("Ошибка RAG-чата: %s", exc)
-        return {"reply": f"Ошибка RAG-чата: {exc}", "tool_calls": [], "chunks": [], "error": "rag_error"}
+        return {
+            "reply": f"Ошибка RAG-чата: {exc}",
+            "tool_calls": [],
+            "chunks": [],
+            "task_state": state,
+            "error": "rag_error",
+        }
 
-    _push_history(session_id, {"role": "user", "content": user_message})
-    _push_history(session_id, {"role": "assistant", "content": result["reply"]})
+    chat_store.append_message(session_id, "user", user_message)
+    chat_store.append_message(session_id, "assistant", result["reply"])
+    chat_store.save_task_state(session_id, state)
     return {
         "reply": result["reply"],
         "tool_calls": [],
         "chunks": result["chunks"],
         "debug": result.get("debug"),
+        "task_state": state,
     }
 
 
@@ -179,7 +211,7 @@ async def run_chat(
 
     client = deepseek.get_client()
     messages: list[dict] = [{"role": "system", "content": _system_prompt()}]
-    messages.extend(_sessions[session_id])
+    messages.extend(_load_history(session_id))
     messages.append({"role": "user", "content": user_message})
 
     tool_events: list[dict] = []
@@ -224,6 +256,6 @@ async def run_chat(
         return {"reply": f"Ошибка обращения к LLM: {exc}", "tool_calls": tool_events, "error": "llm_error"}
 
     final_reply = final_reply or "Модель вернула пустой ответ."
-    _push_history(session_id, {"role": "user", "content": user_message})
-    _push_history(session_id, {"role": "assistant", "content": final_reply})
+    chat_store.append_message(session_id, "user", user_message)
+    chat_store.append_message(session_id, "assistant", final_reply)
     return {"reply": final_reply, "tool_calls": tool_events, "chunks": []}

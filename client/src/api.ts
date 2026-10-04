@@ -2,6 +2,7 @@ import type {
   AppConfig,
   AppStatus,
   ArticlesResponse,
+  ChatHistoryResponse,
   ChatResponse,
   ClearDataResponse,
   LatestSummaryResponse,
@@ -82,5 +83,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ session_id: getSessionId() }),
     }),
+  getChatHistory: () => request<ChatHistoryResponse>('/api/chat/history'),
   getRagStrategies: () => request<RagStrategiesResponse>('/api/rag/strategies'),
 }
