@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../api'
+import { parseRagCitations } from '../citations'
 import { dataVersion, ragRetrieval, ragStrategy, ragVersion } from '../store'
 import type { ChatMessage, ParsingStatus, Post, SummaryData, ToolCallEvent, ToolInfo } from '../types'
 import PostCard from '../components/PostCard.vue'
@@ -8,6 +9,7 @@ import ToolCallList from '../components/ToolCallList.vue'
 import AgentReply from '../components/AgentReply.vue'
 import RagSources from '../components/RagSources.vue'
 import RagPipelineInfo from '../components/RagPipelineInfo.vue'
+import RagSettingsPanel from '../components/RagSettingsPanel.vue'
 
 const RETRIEVAL_LABELS: Record<string, string> = {
   baseline: 'Baseline',
@@ -212,6 +214,7 @@ async function send() {
       text: response.reply,
       toolCalls: response.tool_calls,
       chunks: response.chunks,
+      citations: response.chunks?.length ? parseRagCitations(response.reply) : [],
       ragDebug: response.debug,
       error: Boolean(response.error),
     })
@@ -269,7 +272,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
+  <div class="flex h-full">
+    <div class="flex h-full w-2/3 min-w-0 flex-col border-r border-slate-800">
     <!-- Саммари по текущим карточкам -->
     <div v-if="showSummary" class="border-b border-slate-800 bg-slate-950/60 px-4 py-2">
       <div class="mx-auto w-full max-w-3xl">
@@ -296,7 +300,7 @@ onUnmounted(() => {
         >
           RAG включён: индекс <span class="font-mono text-indigo-100">{{ ragStrategy }}</span>, поиск
           <span class="text-indigo-100">{{ retrievalLabel }}</span> — ответы строятся по найденным чанкам.
-          Сменить стратегию можно на вкладке «RAG».
+          Сменить стратегию можно на панели справа.
         </div>
 
         <!-- Заглушка: нет статей -->
@@ -348,7 +352,7 @@ onUnmounted(() => {
             <AgentReply v-if="message.role === 'assistant' && !message.error" :text="message.text" :posts="postStore" />
             <template v-else>{{ message.text }}</template>
             <RagPipelineInfo v-if="message.ragDebug" :debug="message.ragDebug" />
-            <RagSources v-if="message.chunks?.length" :chunks="message.chunks" />
+            <RagSources v-if="message.chunks?.length" :chunks="message.chunks" :citations="message.citations" />
           </div>
 
           <div v-else class="w-full rounded-xl border border-slate-800 bg-slate-900/70 p-4">
@@ -409,5 +413,11 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    </div>
+
+    <!-- Сайтбар с настройками RAG (1/3 ширины окна) -->
+    <aside class="h-full w-1/3 shrink-0 overflow-y-auto bg-slate-950/40 p-4">
+      <RagSettingsPanel />
+    </aside>
   </div>
 </template>

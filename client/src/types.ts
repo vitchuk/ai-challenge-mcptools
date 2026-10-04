@@ -156,6 +156,11 @@ export interface ThemesResponse {
   themes: ThemeInfo[]
 }
 
+export interface RagCitation {
+  chunkId: string
+  quote: string
+}
+
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type MessageKind = 'text' | 'tools'
 
@@ -167,6 +172,7 @@ export interface ChatMessage {
   tools?: ToolInfo[]
   toolCalls?: ToolCallEvent[]
   chunks?: RagChunkHit[]
+  citations?: RagCitation[]
   ragDebug?: RagPipelineDebug | null
   error?: boolean
 }

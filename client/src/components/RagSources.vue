@@ -1,10 +1,19 @@
 <script setup lang="ts">
-import type { RagChunkHit } from '../types'
+import { splitHighlighted } from '../citations'
+import type { HighlightSegment } from '../citations'
+import type { RagChunkHit, RagCitation } from '../types'
 
-defineProps<{ chunks: RagChunkHit[] }>()
+const props = withDefaults(defineProps<{ chunks: RagChunkHit[]; citations?: RagCitation[] }>(), {
+  citations: () => [],
+})
 
 function scoreLabel(score: number): string {
   return score.toFixed(3)
+}
+
+function quotedSegments(chunk: RagChunkHit): HighlightSegment[] {
+  const quotes = props.citations.filter((item) => item.chunkId === chunk.id).map((item) => item.quote)
+  return quotes.length ? splitHighlighted(chunk.text, quotes) : [{ text: chunk.text, highlight: false }]
 }
 </script>
 
@@ -51,7 +60,10 @@ function scoreLabel(score: number): string {
           </summary>
           <pre
             class="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-slate-950/70 p-2 text-[11px] leading-relaxed text-slate-300"
-          >{{ chunk.text }}</pre>
+          ><template v-for="(segment, segIndex) in quotedSegments(chunk)" :key="segIndex"><mark
+              v-if="segment.highlight"
+              class="rounded-sm bg-amber-400/25 text-amber-100"
+            >{{ segment.text }}</mark><template v-else>{{ segment.text }}</template></template></pre>
         </details>
       </li>
     </ul>
