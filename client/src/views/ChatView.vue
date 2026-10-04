@@ -1,18 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { api } from '../api'
 import { parseRagCitations } from '../citations'
-import { dataVersion, ragRetrieval, ragStrategy, ragVersion } from '../store'
-import type {
-  ChatMessage,
-  ParsingStatus,
-  Post,
-  SummaryData,
-  TaskState,
-  ToolCallEvent,
-  ToolInfo,
-} from '../types'
-import PostCard from '../components/PostCard.vue'
+import { bumpSummaryVersion, posts, ragRetrieval, ragStrategy, ragVersion } from '../store'
+import type { ChatMessage, Post, TaskState, ToolCallEvent, ToolInfo } from '../types'
 import ToolCallList from '../components/ToolCallList.vue'
 import AgentReply from '../components/AgentReply.vue'
 import RagSources from '../components/RagSources.vue'
@@ -38,22 +29,6 @@ const listEl = ref<HTMLElement | null>(null)
 const postStore = ref<Record<string, Post>>({})
 const taskState = ref<TaskState | null>(null)
 let nextId = 1
-
-const articles = ref<Post[]>([])
-const hasArticles = ref(false)
-const parsing = ref<ParsingStatus | null>(null)
-const parseError = ref<string | null>(null)
-const waitingForParse = ref(false)
-const countdownText = ref('')
-const lastRunSeen = ref<string | null>(null)
-
-const summary = ref<SummaryData | null>(null)
-const summaryFile = ref<string | null>(null)
-const summaryFolder = ref<string | null>(null)
-const showSummary = computed(() => hasArticles.value)
-
-let tickTimer: number | undefined
-let tickCount = 0
 
 const suggestions = [
   '/tools',
@@ -97,92 +72,6 @@ async function scrollDown() {
 function addMessage(message: Omit<ChatMessage, 'id'>) {
   messages.value.push({ id: nextId++, ...message })
   void scrollDown()
-}
-
-function formatDuration(total: number): string {
-  const pad = (value: number) => String(value).padStart(2, '0')
-  const hours = Math.floor(total / 3600)
-  const minutes = Math.floor((total % 3600) / 60)
-  const seconds = total % 60
-  return hours > 0 ? `${pad(hours)}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`
-}
-
-async function loadSummary() {
-  try {
-    const data = await api.getLatestSummary()
-    summary.value = data.summary
-    summaryFile.value = data.file
-    summaryFolder.value = data.folder
-  } catch {
-    summary.value = null
-    summaryFile.value = null
-    summaryFolder.value = null
-  }
-}
-
-async function loadArticles() {
-  const data = await api.getArticles(500)
-  articles.value = data.articles
-  if (data.count > 0) {
-    hasArticles.value = true
-    waitingForParse.value = false
-    indexPosts(data.articles)
-    await loadSummary()
-  } else {
-    hasArticles.value = false
-    articles.value = []
-  }
-}
-
-async function refreshStatus() {
-  try {
-    const data = await api.getStatus()
-    parsing.value = data.parsing
-    parseError.value = data.parsing.last_error
-    if (data.articles_count > 0) {
-      waitingForParse.value = false
-      if (!hasArticles.value || data.articles_count !== articles.value.length) {
-        await loadArticles()
-      }
-    } else if (waitingForParse.value) {
-      const run = data.parsing.last_run_at
-      if (run && run !== lastRunSeen.value) {
-        lastRunSeen.value = run
-        waitingForParse.value = false
-      }
-    }
-  } catch (error) {
-    parseError.value = errorText(error)
-  }
-}
-
-function updateCountdown() {
-  const current = parsing.value
-  if (!current?.running || !current.next_run_at) {
-    countdownText.value = ''
-    return
-  }
-  const diff = Math.floor((new Date(current.next_run_at).getTime() - Date.now()) / 1000)
-  if (diff <= 0) {
-    countdownText.value = '00:00'
-    if (!waitingForParse.value) {
-      waitingForParse.value = true
-      lastRunSeen.value = current.last_run_at ?? null
-    }
-  } else {
-    countdownText.value = formatDuration(diff)
-  }
-}
-
-async function tick() {
-  tickCount += 1
-  if (hasArticles.value) {
-    if (tickCount % 5 === 0) await refreshStatus()
-    return
-  }
-  updateCountdown()
-  const every = waitingForParse.value ? 1 : 3
-  if (tickCount % every === 0) await refreshStatus()
 }
 
 async function showToolsHelp() {
@@ -262,7 +151,7 @@ async function send() {
       error: Boolean(response.error),
     })
     if (response.tool_calls.some((call) => call.name === 'summarize_best_posts' || call.name === 'save_summary')) {
-      await loadSummary()
+      bumpSummaryVersion()
     }
   } catch (error) {
     addMessage({ role: 'assistant', kind: 'text', text: `Ошибка: ${errorText(error)}`, error: true })
@@ -283,16 +172,15 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-watch(dataVersion, async () => {
-  articles.value = []
-  hasArticles.value = false
-  postStore.value = {}
-  summary.value = null
-  summaryFile.value = null
-  summaryFolder.value = null
-  waitingForParse.value = false
-  await refreshStatus()
-})
+watch(
+  posts,
+  (list) => {
+    // общие посты (грузит вкладка «MCP») — индекс для встроенных карточек в ответах
+    postStore.value = {}
+    indexPosts(list)
+  },
+  { immediate: true },
+)
 
 watch(ragVersion, async () => {
   // смена стратегии RAG — начинаем диалог с чистого листа (локально и на сервере)
@@ -306,35 +194,13 @@ watch(ragVersion, async () => {
 })
 
 onMounted(async () => {
-  await Promise.all([refreshStatus(), loadChatHistory()])
-  tickTimer = window.setInterval(tick, 1000)
-})
-
-onUnmounted(() => {
-  if (tickTimer) window.clearInterval(tickTimer)
+  await loadChatHistory()
 })
 </script>
 
 <template>
   <div class="flex h-full">
     <div class="flex h-full w-2/3 min-w-0 flex-col border-r border-slate-800">
-    <!-- Саммари по текущим карточкам -->
-    <div v-if="showSummary" class="border-b border-slate-800 bg-slate-950/60 px-4 py-2">
-      <div class="mx-auto w-full max-w-3xl">
-        <details class="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
-          <summary class="cursor-pointer text-xs font-medium uppercase tracking-wide text-slate-400">
-            Саммари
-            <span v-if="summaryFolder || summaryFile" class="ml-2 normal-case text-slate-500">{{ summaryFolder || summaryFile }}</span>
-          </summary>
-          <pre
-            v-if="summary"
-            class="mt-2 max-h-80 overflow-auto rounded bg-slate-950/70 p-3 text-xs leading-relaxed text-slate-300"
-          >{{ JSON.stringify(summary, null, 2) }}</pre>
-          <p v-else class="mt-2 text-xs text-slate-500">Саммари ещё нет.</p>
-        </details>
-      </div>
-    </div>
-
     <div ref="listEl" class="flex-1 overflow-y-auto p-4">
       <div class="mx-auto w-full max-w-3xl space-y-3">
         <!-- Индикатор RAG-режима -->
@@ -349,30 +215,6 @@ onUnmounted(() => {
 
         <!-- Память задачи (цель / уточнения / ограничения) -->
         <TaskStatePanel v-if="ragStrategy && taskState" :state="taskState" />
-
-        <!-- Заглушка: нет статей -->
-        <div v-if="!hasArticles" class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center">
-          <p class="text-sm text-slate-300">Еще не спарсили</p>
-          <div v-if="waitingForParse" class="mt-3 flex items-center justify-center gap-2 text-sm text-indigo-300">
-            <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
-            выполняется парсинг
-          </div>
-          <p v-else-if="parsing?.running" class="mt-3 text-sm text-slate-400">
-            До следующего парсинга: <span class="font-mono text-slate-200">{{ countdownText }}</span>
-          </p>
-          <p v-else class="mt-3 text-sm text-amber-300">
-            Парсинг остановлен — запустите его на вкладке MCP.
-          </p>
-          <p v-if="parseError" class="mt-2 text-xs text-red-300">Ошибка парсинга: {{ parseError }}</p>
-        </div>
-
-        <!-- Карточки статей -->
-        <div v-else>
-          <p class="mb-2 text-center text-xs text-slate-400">В базе {{ articles.length }} статей из ленты /best:</p>
-          <div class="grid gap-2 md:grid-cols-2">
-            <PostCard v-for="post in articles" :key="post.story_id" :post="post" />
-          </div>
-        </div>
 
         <!-- Сообщения чата -->
         <div

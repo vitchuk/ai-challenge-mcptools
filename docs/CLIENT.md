@@ -10,9 +10,9 @@
 | --- | --- |
 | `main.ts` | `createApp(App).mount('#app')` |
 | `App.vue` | Шапка + переключение вкладок «Чат»/«MCP» (`v-show`, роутера нет) |
-| `views/ChatView.vue` | Вкладка «Чат»: карточки статей, блок «Саммари», диалог, панель RAG |
-| `views/McpView.vue` | Вкладка «MCP»: статус, конфиг, старт/стоп/парсинг, очистка, серверы и тулы |
-| `store.ts` | Общий стор вкладок (без Pinia): `articlesCount`, `dataVersion`, `ragStrategy`, `ragVersion`, `ragRetrieval` |
+| `views/ChatView.vue` | Вкладка «Чат»: диалог, индикатор RAG, память задачи, инпут; справа — панель RAG |
+| `views/McpView.vue` | Вкладка «MCP»: две колонки — слева посты/статус парсинга, справа настройки (статус, конфиг, парсинг, саммари, серверы, тулы) |
+| `store.ts` | Общий стор вкладок (без Pinia): `posts`, `articlesCount`, `dataVersion`, `summaryVersion`, `ragStrategy`, `ragVersion`, `ragRetrieval` |
 | `api.ts` | REST-клиент; `getSessionId()` (UUID в localStorage), все запросы с `X-Session-Id` |
 | `types.ts` | Типы API и UI (`ChatResponse`, `TaskState`, `RagChunkHit`, `AppStatus`, …) |
 | `citations.ts` | `parseRagCitations(reply)` (`> [id] quote`), `splitHighlighted(text, quotes)` |
@@ -40,14 +40,23 @@
 и нет ошибки → под ответом рендерятся `RagSources` (даже при пустых chunks) и `RagPipelineInfo`.
 
 ### Восстановление истории
-`onMounted` → `Promise.all([refreshStatus(), loadChatHistory()])`. `api.getChatHistory()`
-(`GET /api/chat/history`, сессия по заголовку) → сообщения и `task_state` восстанавливаются в UI.
-Смена стратегии RAG (bump `ragVersion`) очищает локальные сообщения/`task_state` и зовёт
-`POST /api/chat/reset`. Кнопка «Новый диалог» делает то же вручную.
+`ChatView.onMounted` → `loadChatHistory()`. `api.getChatHistory()` (`GET /api/chat/history`, сессия по
+заголовку) → сообщения и `task_state` восстанавливаются в UI. Смена стратегии RAG (bump `ragVersion`)
+очищает локальные сообщения/`task_state` и зовёт `POST /api/chat/reset`. Кнопка «Новый диалог» — то же вручную.
+
+### Посты, парсинг и саммари (вкладка «MCP»)
+`McpView` — владелец загрузки постов: `loadPosts()` → `api.getArticles(500)` → `setPosts()` в стор.
+Тик раз в секунду: при наличии постов `refresh()` каждые 5с; при пустой базе — живой отсчёт
+(`updateCountdown`) и `refresh()` каждые 1–3с (детект завершения парсинга по `last_run_at`).
+`loadSummary()` (`GET /api/summary/latest`) вызывается при появлении постов и по `summaryVersion`.
+`ChatView` читает `posts` из стора и держит `postStore` (URL → пост) для встроенных карточек в ответах
+(`AgentReply`); `indexToolResults` дополняет его постами из результатов тулов.
 
 ### Синхронизация вкладок
-`dataVersion` (bump в `McpView.clearData`) → `watch` в `ChatView` сбрасывает карточки/саммари и
-перезапрашивает статус.
+- `dataVersion` (bump в `McpView.clearData`) — сигнал «данные очищены»; посты сбрасываются через `setPosts([])`.
+- `summaryVersion` (bump в `ChatView.send` после тулов `summarize_best_posts`/`save_summary`) →
+  `McpView` перезагружает блок «Саммари».
+- Смена RAG-стратегии (`ragVersion`) сбрасывает диалог на сервере и локально.
 
 ## Сборка
 

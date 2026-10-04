@@ -63,9 +63,11 @@ asyncio-задаче. Тулы видны агенту как `server__tool`, ф
 - **`/best` — уже «лучшее за сегодня»**; `parser.fetch_best` дополнительно отбрасывает старое.
 - **Очистка данных** (`POST /api/parsing/clear-data`) = `db.clear_articles` + `tools.clear_summaries`
   + `mcp_manager.clear_output_dirs` + `scheduler.reset_parse_stats`. Клиент синхронизирует вкладки
-  через стор `dataVersion`.
-- **Вкладка «Чат» не триггерит парсинг** — показывает отсчёт до `parsing.next_run_at`, опрашивает
-  `/api/status`, карточки грузятся при `articles_count > 0`.
+  через стор (`dataVersion`, `posts`, `summaryVersion`).
+- **Статус парсинга и посты — на вкладке «MCP»** (левая колонка): живой отсчёт до
+  `parsing.next_run_at`, спиннер «выполняется парсинг», карточки при `articles_count > 0`. Вкладка не
+  триггерит парсинг — только опрашивает `/api/status`. Посты грузит `McpView` в общий стор `posts`;
+  вкладка «Чат» читает их для встроенных карточек в ответах.
 - **Абсолютные пути** (`database_path`, `summaries_dir`) резолвятся от корня проекта в `config.py`.
 - **Секреты** — только `.env`; конфиг сервера — `server/config.json`.
 

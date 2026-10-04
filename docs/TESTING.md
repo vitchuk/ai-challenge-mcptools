@@ -55,11 +55,12 @@ Stop-Process -Id $proc.Id -Force
 1. `GET /api/status`, `/api/tools`, `/api/articles` отвечают, `mcp.connected: true`, `tools_count: 28`.
 2. `POST /api/parsing/run-now` — сохраняется 8 постов; `new` может быть 0, если лента не менялась (не ошибка).
 3. При наличии `DEEPSEEK_API_KEY` после парсинга в `server/data/summaries/` появляется **плоский**
-   `summary_auto_<ts>.json` (не папка!), в `/api/status` — `parsing.last_summary_file`.
+   `summary_auto_<ts>.json` (не папка!), в `/api/status` — `parsing.last_summary_file`; на вкладке
+   «MCP» в блоке «Саммари» — его содержимое.
 4. Кнопки/эндпоинты start/stop отражаются в `parsing.running`.
 5. `POST /api/parsing/clear-data` обнуляет `articles_count`, `summary/latest` → `exists:false`,
    сбрасывает `last_summary_file`/`last_parsed_count`, чистит `mcp_output` (`cleared_mcp_outputs`);
-   во вкладке «Чат» — заглушка с таймером.
+   на вкладке «MCP» в левой колонке — заглушка с таймером, блок «Саммари» скрывается.
 6. `playwright` в `/api/status → servers` → `connected:true` после старта (npx холодный старт ~1 мин);
    `disable` убирает `playwright__*` из `/api/tools` (30→28), `enable` возвращает; состояние переживает рестарт.
 7. Сценарий «саммари + скриншоты» (живой чат): `summarize_best_posts` →

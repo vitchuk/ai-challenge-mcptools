@@ -1,9 +1,22 @@
 import { ref } from 'vue'
-import type { RagRetrievalOptions } from './types'
+import type { Post, RagRetrievalOptions } from './types'
 
 /** Общий стор для связи вкладок: счётчик статей и версия данных (bump при очистке/парсинге). */
 export const articlesCount = ref(0)
 export const dataVersion = ref(0)
+
+/** Спаршенные посты: грузит вкладка «MCP», читают и «MCP» (карточки), и «Чат» (карточки в ответах). */
+export const posts = ref<Post[]>([])
+export function setPosts(list: Post[]) {
+  posts.value = list
+  articlesCount.value = list.length
+}
+
+/** Версия обновления саммари: чат бампает после тулов саммаризации, «MCP» перезагружает блок. */
+export const summaryVersion = ref(0)
+export function bumpSummaryVersion() {
+  summaryVersion.value += 1
+}
 
 const RAG_STRATEGY_KEY = 'pikabu-mcp-rag-strategy'
 const RAG_RETRIEVAL_KEY = 'pikabu-mcp-rag-retrieval'
