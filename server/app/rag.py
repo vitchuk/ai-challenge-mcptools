@@ -495,8 +495,14 @@ async def search(query: str, *, strategy: str, top_k: int = 5) -> list[dict]:
 RAG_SYSTEM_PROMPT = (
     "Ты — ассистент по базе знаний pikabu.ru. Отвечай на русском языке, кратко и по делу, "
     "опираясь ИСКЛЮЧИТЕЛЬНО на предоставленный контекст. "
-    "Если в контексте нет ответа на вопрос — честно скажи об этом и не выдумывай факты. "
-    "Ссылайся на статьи по URL из контекста, когда приводишь факты оттуда."
+    "Если в контексте нет ответа на вопрос — ответь ровно: "
+    "«Ответить на вопрос, опираясь на базу знаний, невозможно. Или переформулируйте вопрос.» "
+    "и не выдумывай факты. "
+    "Ссылайся на статьи по URL из контекста, когда приводишь факты оттуда. "
+    "Когда опираешься на фрагмент контекста, обязательно приведи одну короткую дословную цитату "
+    "из него (до ~200 символов, без изменений) отдельной строкой в формате: "
+    "> [id_фрагмента] текст цитаты "
+    "(id указан в квадратных скобках в начале заголовка фрагмента)."
 )
 
 
@@ -539,16 +545,17 @@ def _empty_hits_reply(debug: dict) -> str:
     params = debug.get("params") or {}
     retrieved = counts.get("retrieved", 0)
     if not retrieved:
-        return "По запросу не найдено ни одного фрагмента в индексе."
+        return "По запросу не найдено ни одного фрагмента в индексе. Переформулируйте вопрос."
     if params.get("reranker_threshold") is not None and counts.get("after_reranker_filter") == 0:
         return (
             f"Reranker отсёк все кандидаты порогом {params['reranker_threshold']} "
-            f"({counts.get('after_similarity_filter', 0)} из {retrieved}). Снизьте reranker threshold."
+            f"({counts.get('after_similarity_filter', 0)} из {retrieved}). "
+            "Снизьте reranker threshold или переформулируйте вопрос."
         )
     threshold = params.get("similarity_threshold")
     return (
         f"Все найденные фрагменты ({retrieved}) отфильтрованы порогом similarity "
-        f"{threshold}. Снизьте similarity threshold."
+        f"{threshold}. Снизьте similarity threshold или переформулируйте вопрос."
     )
 
 

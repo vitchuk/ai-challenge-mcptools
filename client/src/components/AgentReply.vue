@@ -12,17 +12,19 @@ interface Segment {
 }
 
 interface Block {
-  kind: 'text' | 'post' | 'space'
+  kind: 'text' | 'post' | 'space' | 'quote'
   segments?: Segment[]
   title?: string
   href?: string
   meta?: string
   mediaImage?: string | null
   mediaVideo?: boolean
+  chunkId?: string
 }
 
 const STORY_LINK_RE = /\[([^\]]+)\]\((https?:\/\/pikabu\.ru\/story\/[^\s)]+)\)/
 const INLINE_RE = /\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*/g
+const QUOTE_RE = /^>+\s*\[([A-Za-z0-9_]+)\]\s*(.+)$/
 
 function parseInline(text: string): Segment[] {
   const segments: Segment[] = []
@@ -68,6 +70,15 @@ const blocks = computed<Block[]>(() => {
       result.push({ kind: 'space' })
       continue
     }
+    const quoteMatch = QUOTE_RE.exec(line)
+    if (quoteMatch) {
+      result.push({
+        kind: 'quote',
+        chunkId: quoteMatch[1],
+        segments: parseInline(quoteMatch[2].trim()),
+      })
+      continue
+    }
     const storyMatch = STORY_LINK_RE.exec(line)
     if (storyMatch) {
       const href = storyMatch[2]
@@ -94,6 +105,20 @@ const blocks = computed<Block[]>(() => {
   <div class="space-y-1">
     <template v-for="(block, index) in blocks" :key="index">
       <div v-if="block.kind === 'space'" class="h-2" />
+
+      <blockquote
+        v-else-if="block.kind === 'quote'"
+        class="rounded-r border-l-4 border-indigo-500/50 bg-indigo-950/20 py-1.5 pl-3 pr-2 text-sm italic leading-relaxed text-slate-300"
+      >
+        <span
+          v-for="(segment, segIndex) in block.segments"
+          :key="segIndex"
+          :class="{ 'font-semibold text-slate-200 not-italic': segment.bold }"
+        >{{ segment.text }}</span>
+        <span v-if="block.chunkId" class="ml-2 align-middle font-mono text-[10px] not-italic text-indigo-400/80">
+          {{ block.chunkId }}
+        </span>
+      </blockquote>
 
       <p v-else-if="block.kind === 'text'" class="text-sm leading-relaxed text-slate-100">
         <template v-for="(segment, segIndex) in block.segments" :key="segIndex">
