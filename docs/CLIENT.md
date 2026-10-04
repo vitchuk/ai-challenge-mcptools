@@ -10,9 +10,9 @@
 | --- | --- |
 | `main.ts` | `createApp(App).mount('#app')` |
 | `App.vue` | Шапка + переключение вкладок «Чат»/«MCP» (`v-show`, роутера нет) |
-| `views/ChatView.vue` | Вкладка «Чат»: диалог, индикатор RAG, память задачи, инпут; справа — панель RAG |
+| `views/ChatView.vue` | Вкладка «Чат»: три колонки — список чатов, диалог (RAG-индикатор, память задачи, инпут), панель RAG |
 | `views/McpView.vue` | Вкладка «MCP»: две колонки — слева посты/статус парсинга, справа настройки (статус, конфиг, парсинг, саммари, серверы, тулы) |
-| `store.ts` | Общий стор вкладок (без Pinia): `posts`, `articlesCount`, `dataVersion`, `summaryVersion`, `ragStrategy`, `ragVersion`, `ragRetrieval` |
+| `store.ts` | Общий стор вкладок (без Pinia): `posts`, `articlesCount`, `dataVersion`, `summaryVersion`, `chats`, `currentChatId`, `ragStrategy`, `ragRetrieval` |
 | `api.ts` | REST-клиент; `getSessionId()` (UUID в localStorage), все запросы с `X-Session-Id` |
 | `types.ts` | Типы API и UI (`ChatResponse`, `TaskState`, `RagChunkHit`, `AppStatus`, …) |
 | `citations.ts` | `parseRagCitations(reply)` (`> [id] quote`), `splitHighlighted(text, quotes)` |
@@ -23,6 +23,7 @@
 | Компонент | Вход | Рисует |
 | --- | --- | --- |
 | `PostCard.vue` | `post: Post` | Карточка статьи (заголовок-ссылка, картинка/видео, мета) |
+| `ChatTabs.vue` | `chats`, `currentChatId`, `busy` | Вертикальный список чатов: заголовок, число сообщений, крестик удаления, «+ Новый чат» |
 | `AgentReply.vue` | `text`, `posts` | Ответ ассистента: цитаты `> [id]`, markdown-ссылки → встроенные карточки постов |
 | `ToolCallList.vue` | `calls: ToolCallEvent[]` | Свёрнутые чипы вызовов тулов |
 | `RagSources.vue` | `chunks`, `citations` | Блок «Источники RAG (N)»; при 0 — «фрагменты не найдены» |
@@ -33,16 +34,25 @@
 ## Потоки
 
 ### Отправка сообщения (`ChatView.send`)
-`api.sendChat(text, ragStrategy || undefined, ragStrategy ? ragRetrieval : undefined)` →
+`api.sendChat(text, chatId, ragStrategy || undefined, ragStrategy ? ragRetrieval : undefined)` →
 `POST /api/chat` с `{message, session_id, rag_strategy, rag_options}`. В `rag_options`
 `reranker_threshold` уходит только при `reranker_threshold_enabled`. Из ответа: `reply`,
-`tool_calls`, `chunks`, `debug`, `task_state`. Сообщение помечается `rag: true`, если включён RAG
-и нет ошибки → под ответом рендерятся `RagSources` (даже при пустых chunks) и `RagPipelineInfo`.
+`tool_calls`, `chunks`, `debug`, `task_state`, `chat_id`, `chat_title`. Сообщение помечается
+`rag: true`, если включён RAG и нет ошибки → под ответом рендерятся `RagSources` (даже при пустых
+chunks) и `RagPipelineInfo`. Если чат новый — после ответа `getChats()` обновляет список; иначе
+`touchChat` поднимает чат наверх.
+
+### Чаты (список, переключение, удаление)
+`ChatView` при старте (`onMounted`) грузит `getChats()` и выбирает `currentChatId` из localStorage
+(иначе самый свежий, иначе пустое состояние). `loadChat(id)` → `getChatHistory(id)` восстанавливает
+сообщения и `task_state`. `newChat()` только сбрасывает выбор — **чат создаётся лениво** при первом
+сообщении (`crypto.randomUUID()` в `send`). Удаление — крестик в `ChatTabs` → `window.confirm` →
+`deleteChat(id)` (`POST /api/chats/{id}/delete`) → `removeChat`; если удалён активный чат, выбирается
+соседний (или пустое состояние). Смена RAG-стратегии чат **не сбрасывает**.
 
 ### Восстановление истории
-`ChatView.onMounted` → `loadChatHistory()`. `api.getChatHistory()` (`GET /api/chat/history`, сессия по
-заголовку) → сообщения и `task_state` восстанавливаются в UI. Смена стратегии RAG (bump `ragVersion`)
-очищает локальные сообщения/`task_state` и зовёт `POST /api/chat/reset`. Кнопка «Новый диалог» — то же вручную.
+`loadChat(id)` → `api.getChatHistory(id)` (`GET /api/chat/history?session_id=…`) → сообщения и
+`task_state` восстанавливаются в UI.
 
 ### Посты, парсинг и саммари (вкладка «MCP»)
 `McpView` — владелец загрузки постов: `loadPosts()` → `api.getArticles(500)` → `setPosts()` в стор.
@@ -56,7 +66,6 @@
 - `dataVersion` (bump в `McpView.clearData`) — сигнал «данные очищены»; посты сбрасываются через `setPosts([])`.
 - `summaryVersion` (bump в `ChatView.send` после тулов `summarize_best_posts`/`save_summary`) →
   `McpView` перезагружает блок «Саммари».
-- Смена RAG-стратегии (`ragVersion`) сбрасывает диалог на сервере и локально.
 
 ## Сборка
 

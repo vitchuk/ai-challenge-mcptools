@@ -123,7 +123,22 @@ export interface ChatResponse {
   chunks?: RagChunkHit[]
   debug?: RagPipelineDebug | null
   task_state?: TaskState | null
+  chat_id?: string | null
+  chat_title?: string | null
   error?: string
+}
+
+export interface ChatInfo {
+  session_id: string
+  title: string
+  created_at: string
+  updated_at: string
+  messages_count: number
+}
+
+export interface ChatsResponse {
+  count: number
+  chats: ChatInfo[]
 }
 
 export interface ChatHistoryMessage {

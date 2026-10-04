@@ -23,14 +23,16 @@
 | POST | `/api/parsing/run-now` | — | результат парсинга (`ok`, `new`, …) |
 | POST | `/api/parsing/clear-data` | — | `{cleared_articles, cleared_summaries, cleared_mcp_outputs}` |
 | GET | `/api/summary/latest` | — | `{exists, file, folder, summary}` |
-| POST | `/api/chat` | `{message, session_id?, rag_strategy?, rag_options?}` | `ChatResponse` |
+| POST | `/api/chat` | `{message, session_id?, rag_strategy?, rag_options?}` | `ChatResponse` (включая `chat_id`, `chat_title`) |
 | GET | `/api/chat/history` | заголовок `X-Session-Id` или `session_id` | `{session_id, messages[], task_state}` |
-| POST | `/api/chat/reset` | `{session_id?}` | `{ok, session_id}` |
+| POST | `/api/chat/reset` | `{session_id?}` | `{ok, session_id}` (удаляет чат целиком) |
+| GET | `/api/chats` | — | `{count, chats[]}` (заголовок = первый вопрос, свежие сверху) |
+| POST | `/api/chats/{session_id}/delete` | — | `{ok, session_id}` (идемпотентно) |
 | GET | `/api/rag/strategies` | — | `{strategies[], retrieval_strategies[]}` |
 | GET | `/api/rag/strategies/{strategy}` | `limit` (1..500, по умолч. 50) | чанки индекса без векторов |
 
 `session_id` в `/api/chat` и `/api/chat/reset`; если не передан — берётся заголовок `X-Session-Id`
-(иначе `"default"`).
+(иначе `"default"`). Каждый `session_id` — отдельный сохраняемый чат.
 
 ## `POST /api/chat`
 
@@ -73,11 +75,14 @@
             "params": {}, "counts": {"retrieved": 12, "after_similarity_filter": 12,
                                      "after_reranker_filter": 12, "final": 5}},
   "task_state": {"goal": "…", "clarifications": ["…"], "constraints": ["…"], "updated_at": "…"},
+  "chat_id": "uuid",
+  "chat_title": "Первый вопрос пользователя…",
   "error": null
 }
 ```
 
-В агентском режиме `chunks` = `[]`, `debug`/`task_state` отсутствуют.
+В агентском режиме `chunks` = `[]`, `debug`/`task_state` отсутствуют. `chat_id` = `session_id`,
+`chat_title` = заголовок чата (обрезка первого вопроса).
 
 ## Примеры (curl)
 
@@ -91,11 +96,17 @@ curl -s -X POST http://127.0.0.1:8000/api/chat \
   -d '{"message":"Почему Земля не падает на Солнце?","rag_strategy":"fixed","rag_options":{"strategy":"baseline","top_k":4}}'
 
 # История и память задачи сессии
-curl -s http://127.0.0.1:8000/api/chat/history -H "X-Session-Id: demo"
+curl -s "http://127.0.0.1:8000/api/chat/history?session_id=demo"
 
-# Очистить сессию
+# Очистить/удалить чат целиком
 curl -s -X POST http://127.0.0.1:8000/api/chat/reset \
   -H "Content-Type: application/json" -d '{"session_id":"demo"}'
+
+# Список чатов
+curl -s http://127.0.0.1:8000/api/chats
+
+# Удалить чат по id
+curl -s -X POST http://127.0.0.1:8000/api/chats/demo/delete
 
 # Очистить все данные (статьи/саммари/output MCP)
 curl -s -X POST http://127.0.0.1:8000/api/parsing/clear-data

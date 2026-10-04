@@ -28,9 +28,11 @@ SQLite (статьи). Схема `articles`, `init_db`, `upsert_articles`, `tri
 Только параметризованный SQL. WAL-режим. Паттерн: `with _lock, _connect() as conn`.
 
 ### `chat_store.py`
-SQLite (чат): таблицы `chat_messages`, `chat_task_states`. `init_tables`, `append_message`,
-`load_history(session_id, limit)`, `save_task_state`, `load_task_state`, `clear_session`,
-`count_messages`. Использует ту же БД, что `db.py`.
+SQLite (чаты): таблицы `chats` (заголовок = первый вопрос, created/updated), `chat_messages`,
+`chat_task_states`. `init_tables` (+ бэкфилл метаданных для старых сессий), `append_message`
+(создаёт чат и заголовок при первом сообщении), `load_history`, `list_chats` (свежие сверху,
+с `messages_count`), `get_chat`, `save_task_state`, `load_task_state`, `delete_chat` (удаляет чат
+целиком), `count_messages`. Использует ту же БД, что `db.py`.
 
 ### `parser.py`
 `fetch_best()` — парсит `/best` (8 постов, реклама отбрасывается), фильтр `max_post_age_hours`;
@@ -66,8 +68,9 @@ APScheduler: интервальный парсинг, `start_scheduler`/`stop_sc
 
 ### `chat.py`
 `run_chat(session_id, message, rag_strategy, rag_options)` — главный вход чата. `_run_rag_chat`,
-`route_tool_call`, `_system_prompt`, `all_tools_schema`, rate limit, `reset_session`, `load_session`.
-История — через `chat_store`. Возвращает `{reply, tool_calls, chunks?, debug?, task_state?, error?}`.
+`route_tool_call`, `_system_prompt`, `all_tools_schema`, rate limit, `reset_session` (удаляет чат),
+`list_chats`, `load_session`. История — через `chat_store` (чат создаётся при первом сообщении).
+Возвращает `{reply, tool_calls, chunks?, debug?, task_state?, chat_id, chat_title, error?}`.
 
 ### `rag.py`
 RAG: парсинг `pikabu-txt.md`, чанкинг (`fixed`/`paragraph`, `CHUNKERS`), эмбеддинги ollama

@@ -2,7 +2,18 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { api } from '../api'
 import { parseRagCitations } from '../citations'
-import { bumpSummaryVersion, posts, ragRetrieval, ragStrategy, ragVersion } from '../store'
+import {
+  bumpSummaryVersion,
+  chats,
+  currentChatId,
+  posts,
+  ragRetrieval,
+  ragStrategy,
+  removeChat,
+  setChats,
+  setCurrentChatId,
+  touchChat,
+} from '../store'
 import type { ChatMessage, Post, TaskState, ToolCallEvent, ToolInfo } from '../types'
 import ToolCallList from '../components/ToolCallList.vue'
 import AgentReply from '../components/AgentReply.vue'
@@ -10,6 +21,7 @@ import RagSources from '../components/RagSources.vue'
 import RagPipelineInfo from '../components/RagPipelineInfo.vue'
 import RagSettingsPanel from '../components/RagSettingsPanel.vue'
 import TaskStatePanel from '../components/TaskStatePanel.vue'
+import ChatTabs from '../components/ChatTabs.vue'
 
 const RETRIEVAL_LABELS: Record<string, string> = {
   baseline: 'Baseline',
@@ -20,6 +32,10 @@ const RETRIEVAL_LABELS: Record<string, string> = {
 
 const retrievalLabel = computed(
   () => RETRIEVAL_LABELS[ragRetrieval.value.strategy] ?? ragRetrieval.value.strategy,
+)
+
+const inputPlaceholder = computed(() =>
+  currentChatId.value ? 'Спросите что-нибудь или введите /tools' : 'Сообщение начнёт новый чат…',
 )
 
 const messages = ref<ChatMessage[]>([])
@@ -88,32 +104,61 @@ async function showToolsHelp() {
   }
 }
 
-async function loadChatHistory() {
+async function refreshChats() {
   try {
-    const data = await api.getChatHistory()
+    const data = await api.getChats()
+    setChats(data.chats)
+  } catch {
+    // список чатов недоступен — не критично
+  }
+}
+
+async function loadChat(id: string) {
+  setCurrentChatId(id)
+  messages.value = []
+  taskState.value = null
+  try {
+    const data = await api.getChatHistory(id)
     taskState.value = data.task_state
-    if (data.messages.length) {
-      messages.value = data.messages.map((message) => ({
-        id: nextId++,
-        role: message.role,
-        kind: 'text' as const,
-        text: message.content,
-        citations: message.role === 'assistant' ? parseRagCitations(message.content) : [],
-      }))
-      await scrollDown()
-    }
+    messages.value = data.messages.map((message) => ({
+      id: nextId++,
+      role: message.role,
+      kind: 'text' as const,
+      text: message.content,
+      citations: message.role === 'assistant' ? parseRagCitations(message.content) : [],
+    }))
+    await scrollDown()
   } catch {
     // история недоступна — начинаем с пустого диалога
   }
 }
 
-async function resetDialog() {
+function newChat() {
+  setCurrentChatId(null)
   messages.value = []
   taskState.value = null
+}
+
+async function selectChat(id: string) {
+  if (busy.value || id === currentChatId.value) return
+  await loadChat(id)
+}
+
+async function deleteChat(id: string) {
+  const chat = chats.value.find((item) => item.session_id === id)
+  const title = chat?.title ?? 'без названия'
+  if (!window.confirm(`Удалить чат «${title}»? История и память задачи будут удалены безвозвратно.`)) return
   try {
-    await api.resetChat()
-  } catch {
-    // не критично: серверная история перезапишется при следующем запросе
+    await api.deleteChat(id)
+  } catch (error) {
+    addMessage({ role: 'assistant', kind: 'text', text: `Не удалось удалить чат: ${errorText(error)}`, error: true })
+    return
+  }
+  removeChat(id)
+  if (id === currentChatId.value) {
+    const next = chats.value[0]
+    if (next) await loadChat(next.session_id)
+    else newChat()
   }
 }
 
@@ -121,18 +166,25 @@ async function send() {
   const text = input.value.trim()
   if (!text || busy.value) return
   input.value = ''
-  addMessage({ role: 'user', kind: 'text', text })
 
   if (text === '/tools') {
+    addMessage({ role: 'user', kind: 'text', text })
     await showToolsHelp()
     return
   }
+
+  // чат создаётся лениво: id генерируется при первом сообщении
+  const isNewChat = !currentChatId.value
+  const chatId = currentChatId.value ?? crypto.randomUUID()
+  if (isNewChat) setCurrentChatId(chatId)
+  addMessage({ role: 'user', kind: 'text', text })
 
   const isRag = Boolean(ragStrategy.value)
   busy.value = true
   try {
     const response = await api.sendChat(
       text,
+      chatId,
       ragStrategy.value || undefined,
       ragStrategy.value ? ragRetrieval.value : undefined,
     )
@@ -153,6 +205,8 @@ async function send() {
     if (response.tool_calls.some((call) => call.name === 'summarize_best_posts' || call.name === 'save_summary')) {
       bumpSummaryVersion()
     }
+    if (isNewChat) await refreshChats()
+    else touchChat(chatId)
   } catch (error) {
     addMessage({ role: 'assistant', kind: 'text', text: `Ошибка: ${errorText(error)}`, error: true })
   } finally {
@@ -182,138 +236,148 @@ watch(
   { immediate: true },
 )
 
-watch(ragVersion, async () => {
-  // смена стратегии RAG — начинаем диалог с чистого листа (локально и на сервере)
-  messages.value = []
-  taskState.value = null
-  try {
-    await api.resetChat()
-  } catch {
-    // не критично: серверная история перезапишется при следующем запросе
-  }
-})
-
 onMounted(async () => {
-  await loadChatHistory()
+  await refreshChats()
+  const saved = currentChatId.value
+  const target =
+    saved && chats.value.some((chat) => chat.session_id === saved)
+      ? saved
+      : chats.value[0]?.session_id ?? null
+  if (target) await loadChat(target)
+  else newChat()
 })
 </script>
 
 <template>
   <div class="flex h-full">
-    <div class="flex h-full w-2/3 min-w-0 flex-col border-r border-slate-800">
-    <div ref="listEl" class="flex-1 overflow-y-auto p-4">
-      <div class="mx-auto w-full max-w-3xl space-y-3">
-        <!-- Индикатор RAG-режима -->
-        <div
-          v-if="ragStrategy"
-          class="rounded-lg border border-indigo-900/60 bg-indigo-950/30 px-3 py-1.5 text-xs text-indigo-200"
-        >
-          RAG включён: индекс <span class="font-mono text-indigo-100">{{ ragStrategy }}</span>, поиск
-          <span class="text-indigo-100">{{ retrievalLabel }}</span> — ответы строятся по найденным чанкам.
-          Сменить стратегию можно на панели справа.
-        </div>
+    <!-- Левая колонка: список чатов -->
+    <aside class="h-full w-60 shrink-0 border-r border-slate-800">
+      <ChatTabs
+        :chats="chats"
+        :current-chat-id="currentChatId"
+        :busy="busy"
+        @select="selectChat"
+        @delete="deleteChat"
+        @new="newChat"
+      />
+    </aside>
 
-        <!-- Память задачи (цель / уточнения / ограничения) -->
-        <TaskStatePanel v-if="ragStrategy && taskState" :state="taskState" />
-
-        <!-- Сообщения чата -->
-        <div
-          v-for="message in messages"
-          :key="message.id"
-          class="flex"
-          :class="{
-            'justify-end': message.role === 'user',
-            'justify-start': message.role === 'assistant',
-            'justify-center': message.role === 'system',
-          }"
-        >
+    <!-- Колонка чата -->
+    <div class="flex h-full min-w-0 flex-1 flex-col">
+      <div ref="listEl" class="flex-1 overflow-y-auto p-4">
+        <div class="mx-auto w-full max-w-3xl space-y-3">
+          <!-- Индикатор RAG-режима -->
           <div
-            v-if="message.kind === 'text'"
-            class="max-w-[85%] rounded-2xl px-4 py-2 text-sm leading-relaxed"
+            v-if="ragStrategy"
+            class="rounded-lg border border-indigo-900/60 bg-indigo-950/30 px-3 py-1.5 text-xs text-indigo-200"
+          >
+            RAG включён: индекс <span class="font-mono text-indigo-100">{{ ragStrategy }}</span>, поиск
+            <span class="text-indigo-100">{{ retrievalLabel }}</span> — ответы строятся по найденным чанкам.
+            Сменить стратегию можно на панели справа.
+          </div>
+
+          <!-- Память задачи (цель / уточнения / ограничения) -->
+          <TaskStatePanel v-if="ragStrategy && taskState" :state="taskState" />
+
+          <!-- Пустое состояние: чат не выбран -->
+          <div
+            v-if="!currentChatId && !messages.length"
+            class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center"
+          >
+            <p class="text-sm text-slate-300">Выберите чат слева или начните новый</p>
+            <p class="mt-2 text-xs text-slate-500">Первое отправленное сообщение создаст новый чат.</p>
+          </div>
+
+          <!-- Сообщения чата -->
+          <div
+            v-for="message in messages"
+            :key="message.id"
+            class="flex"
             :class="{
-              'bg-indigo-600 whitespace-pre-wrap text-white': message.role === 'user',
-              'border border-slate-800 bg-slate-800/80 text-slate-100': message.role === 'assistant' && !message.error,
-              'border border-red-900/60 bg-red-950/40 text-red-200': message.error,
-              'border border-slate-800 bg-slate-900/70 whitespace-pre-wrap text-slate-400': message.role === 'system' && !message.error,
+              'justify-end': message.role === 'user',
+              'justify-start': message.role === 'assistant',
+              'justify-center': message.role === 'system',
             }"
           >
-            <ToolCallList v-if="message.toolCalls?.length" :calls="message.toolCalls" />
-            <AgentReply v-if="message.role === 'assistant' && !message.error" :text="message.text" :posts="postStore" />
-            <template v-else>{{ message.text }}</template>
-            <RagPipelineInfo v-if="message.ragDebug" :debug="message.ragDebug" />
-            <RagSources
-              v-if="message.rag"
-              :chunks="message.chunks ?? []"
-              :citations="message.citations"
+            <div
+              v-if="message.kind === 'text'"
+              class="max-w-[85%] rounded-2xl px-4 py-2 text-sm leading-relaxed"
+              :class="{
+                'bg-indigo-600 whitespace-pre-wrap text-white': message.role === 'user',
+                'border border-slate-800 bg-slate-800/80 text-slate-100': message.role === 'assistant' && !message.error,
+                'border border-red-900/60 bg-red-950/40 text-red-200': message.error,
+                'border border-slate-800 bg-slate-900/70 whitespace-pre-wrap text-slate-400': message.role === 'system' && !message.error,
+              }"
+            >
+              <ToolCallList v-if="message.toolCalls?.length" :calls="message.toolCalls" />
+              <AgentReply v-if="message.role === 'assistant' && !message.error" :text="message.text" :posts="postStore" />
+              <template v-else>{{ message.text }}</template>
+              <RagPipelineInfo v-if="message.ragDebug" :debug="message.ragDebug" />
+              <RagSources
+                v-if="message.rag"
+                :chunks="message.chunks ?? []"
+                :citations="message.citations"
+              />
+            </div>
+
+            <div v-else class="w-full rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+              <p class="mb-3 text-sm font-medium text-slate-200">{{ message.text }}</p>
+              <ul class="space-y-2">
+                <li v-for="tool in message.tools" :key="tool.name" class="text-xs">
+                  <span class="font-mono text-emerald-300">{{ tool.name }}</span>
+                  <span class="text-slate-400"> — {{ tool.short_description || tool.description }}</span>
+                </li>
+              </ul>
+              <p class="mt-3 text-xs text-slate-500">
+                Введите запрос обычным текстом — агент сам вызовет нужные тулы. Например: «Покажи юмор», «Саммари 5 статей», «Сохрани как txt».
+              </p>
+            </div>
+          </div>
+
+          <div v-if="busy" class="flex justify-start">
+            <div class="rounded-2xl border border-slate-800 bg-slate-800/60 px-4 py-2 text-sm text-slate-400">
+              <span class="animate-pulse">
+                {{ ragStrategy ? 'Ищу релевантные чанки и формирую ответ…' : 'Агент думает и вызывает тулы…' }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="border-t border-slate-800 bg-slate-950/80 p-3">
+        <div class="mx-auto w-full max-w-3xl">
+          <div class="mb-2 flex flex-wrap gap-2">
+            <button
+              v-for="suggestion in suggestions"
+              :key="suggestion"
+              type="button"
+              :disabled="busy"
+              class="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300 transition hover:border-indigo-500 hover:text-indigo-300 disabled:opacity-40"
+              @click="useSuggestion(suggestion)"
+            >
+              {{ suggestion }}
+            </button>
+          </div>
+          <div class="flex items-end gap-2">
+            <textarea
+              v-model="input"
+              rows="2"
+              :disabled="busy"
+              :placeholder="inputPlaceholder"
+              class="flex-1 resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-indigo-500 disabled:opacity-50"
+              @keydown="onKeydown"
             />
-          </div>
-
-          <div v-else class="w-full rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-            <p class="mb-3 text-sm font-medium text-slate-200">{{ message.text }}</p>
-            <ul class="space-y-2">
-              <li v-for="tool in message.tools" :key="tool.name" class="text-xs">
-                <span class="font-mono text-emerald-300">{{ tool.name }}</span>
-                <span class="text-slate-400"> — {{ tool.short_description || tool.description }}</span>
-              </li>
-            </ul>
-            <p class="mt-3 text-xs text-slate-500">
-              Введите запрос обычным текстом — агент сам вызовет нужные тулы. Например: «Покажи юмор», «Саммари 5 статей», «Сохрани как txt».
-            </p>
-          </div>
-        </div>
-
-        <div v-if="busy" class="flex justify-start">
-          <div class="rounded-2xl border border-slate-800 bg-slate-800/60 px-4 py-2 text-sm text-slate-400">
-            <span class="animate-pulse">
-              {{ ragStrategy ? 'Ищу релевантные чанки и формирую ответ…' : 'Агент думает и вызывает тулы…' }}
-            </span>
+            <button
+              type="button"
+              :disabled="busy || !input.trim()"
+              class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-40"
+              @click="send"
+            >
+              Отправить
+            </button>
           </div>
         </div>
       </div>
-    </div>
-
-    <div class="border-t border-slate-800 bg-slate-950/80 p-3">
-      <div class="mx-auto w-full max-w-3xl">
-        <div class="mb-2 flex flex-wrap gap-2">
-          <button
-            v-for="suggestion in suggestions"
-            :key="suggestion"
-            type="button"
-            :disabled="busy"
-            class="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300 transition hover:border-indigo-500 hover:text-indigo-300 disabled:opacity-40"
-            @click="useSuggestion(suggestion)"
-          >
-            {{ suggestion }}
-          </button>
-          <button
-            type="button"
-            :disabled="busy || !messages.length"
-            class="ml-auto rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-400 transition hover:border-red-500 hover:text-red-300 disabled:opacity-40"
-            @click="resetDialog"
-          >
-            Новый диалог
-          </button>
-        </div>
-        <div class="flex items-end gap-2">
-          <textarea
-            v-model="input"
-            rows="2"
-            :disabled="busy"
-            placeholder="Спросите что-нибудь или введите /tools"
-            class="flex-1 resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-indigo-500 disabled:opacity-50"
-            @keydown="onKeydown"
-          />
-          <button
-            type="button"
-            :disabled="busy || !input.trim()"
-            class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-40"
-            @click="send"
-          >
-            Отправить
-          </button>
-        </div>
-      </div>
-    </div>
     </div>
 
     <!-- Сайтбар с настройками RAG (1/3 ширины окна) -->

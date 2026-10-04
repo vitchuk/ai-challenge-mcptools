@@ -208,6 +208,21 @@ async def get_chat_history(
     return chat.load_session(sid)
 
 
+@router.get("/chats")
+async def get_chats() -> dict:
+    """Список сохранённых чатов (заголовок = первый вопрос, свежие сверху)."""
+    chats = chat.list_chats()
+    return {"count": len(chats), "chats": chats}
+
+
+@router.post("/chats/{session_id}/delete")
+async def delete_chat(session_id: str) -> dict:
+    """Удаляет чат целиком (метаданные, история, память задачи). Идемпотентно."""
+    sid = session_id[:128]
+    chat.reset_session(sid)
+    return {"ok": True, "session_id": sid}
+
+
 @router.get("/rag/strategies")
 async def get_rag_strategies() -> dict:
     """Собранные RAG-индексы (чанкинг) + доступные стратегии поиска для UI."""

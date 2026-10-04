@@ -80,8 +80,13 @@ def _load_history(session_id: str) -> list[dict]:
 
 
 def reset_session(session_id: str) -> None:
-    """Очищает историю и память задачи сессии."""
-    chat_store.clear_session(session_id)
+    """Удаляет чат целиком: историю сообщений и память задачи."""
+    chat_store.delete_chat(session_id)
+
+
+def list_chats() -> list[dict]:
+    """Список сохранённых чатов (свежие сверху)."""
+    return chat_store.list_chats()
 
 
 def load_session(session_id: str) -> dict:
@@ -163,12 +168,15 @@ async def _run_rag_chat(
     chat_store.append_message(session_id, "user", user_message)
     chat_store.append_message(session_id, "assistant", result["reply"])
     chat_store.save_task_state(session_id, state)
+    chat = chat_store.get_chat(session_id) or {}
     return {
         "reply": result["reply"],
         "tool_calls": [],
         "chunks": result["chunks"],
         "debug": result.get("debug"),
         "task_state": state,
+        "chat_id": session_id,
+        "chat_title": chat.get("title"),
     }
 
 
@@ -258,4 +266,11 @@ async def run_chat(
     final_reply = final_reply or "Модель вернула пустой ответ."
     chat_store.append_message(session_id, "user", user_message)
     chat_store.append_message(session_id, "assistant", final_reply)
-    return {"reply": final_reply, "tool_calls": tool_events, "chunks": []}
+    chat = chat_store.get_chat(session_id) or {}
+    return {
+        "reply": final_reply,
+        "tool_calls": tool_events,
+        "chunks": [],
+        "chat_id": session_id,
+        "chat_title": chat.get("title"),
+    }

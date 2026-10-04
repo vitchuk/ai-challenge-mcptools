@@ -25,6 +25,9 @@
 (до `chat_max_iterations`) → `route_tool_call` (префикс `server__tool` → внешний MCP, иначе `tools.REGISTRY`)
 → ответ. Тулы выполняются **в процессе**, не по HTTP к `/mcp`. История и ответ сохраняются в SQLite.
 
+> Каждая сессия (`session_id`) — **отдельный чат** с собственным заголовком (первый вопрос) и памятью
+> задачи; список — `GET /api/chats`, удаление — `POST /api/chats/{id}/delete` (`chat_store.delete_chat`).
+
 ### 2. RAG-чат (`POST /api/chat` с `rag_strategy`)
 `chat._run_rag_chat` → `task_state.update_state` (память задачи) → `rag.build_rag_reply`
 (поиск чанков + промпт с контекстом/памятью) → ответ с `chunks`/`debug`/`task_state`.
