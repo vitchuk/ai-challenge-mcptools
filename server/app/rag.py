@@ -22,7 +22,7 @@ from pathlib import Path
 
 import httpx
 
-from . import deepseek, rag_pipeline
+from . import deepseek, rag_pipeline, task_state
 from .config import RagSettings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -495,14 +495,20 @@ async def search(query: str, *, strategy: str, top_k: int = 5) -> list[dict]:
 RAG_SYSTEM_PROMPT = (
     "Ты — ассистент по базе знаний pikabu.ru. Отвечай на русском языке, кратко и по делу, "
     "опираясь ИСКЛЮЧИТЕЛЬНО на предоставленный контекст. "
-    "Если в контексте нет ответа на вопрос — ответь ровно: "
+    "Если в контексте нет ответа на вопрос — ответь фразой: "
     "«Ответить на вопрос, опираясь на базу знаний, невозможно. Или переформулируйте вопрос.» "
     "и не выдумывай факты. "
     "Ссылайся на статьи по URL из контекста, когда приводишь факты оттуда. "
     "Когда опираешься на фрагмент контекста, обязательно приведи одну короткую дословную цитату "
     "из него (до ~200 символов, без изменений) отдельной строкой в формате: "
     "> [id_фрагмента] текст цитаты "
-    "(id указан в квадратных скобках в начале заголовка фрагмента)."
+    "(id указан в квадратных скобках в начале заголовка фрагмента). "
+    "В КОНЦЕ КАЖДОГО ответа всегда выводи раздел «Источники:» — список использованных фрагментов "
+    "строками «[id] название — url». Если ответа в контексте нет или контекст не релевантен, "
+    "всё равно выведи раздел ровно строкой: "
+    "«Источники: не найдены (нет релевантных фрагментов в базе знаний)». "
+    "Учитывай состояние задачи диалога (цель, уточнения, ограничения), если оно передано, "
+    "и не противоречь ему."
 )
 
 
@@ -544,18 +550,22 @@ def _empty_hits_reply(debug: dict) -> str:
     counts = debug.get("counts") or {}
     params = debug.get("params") or {}
     retrieved = counts.get("retrieved", 0)
+    no_sources = "\n\nИсточники: не найдены (нет релевантных фрагментов в базе знаний)."
     if not retrieved:
-        return "По запросу не найдено ни одного фрагмента в индексе. Переформулируйте вопрос."
+        return (
+            "По запросу не найдено ни одного фрагмента в индексе. Переформулируйте вопрос."
+            + no_sources
+        )
     if params.get("reranker_threshold") is not None and counts.get("after_reranker_filter") == 0:
         return (
             f"Reranker отсёк все кандидаты порогом {params['reranker_threshold']} "
             f"({counts.get('after_similarity_filter', 0)} из {retrieved}). "
-            "Снизьте reranker threshold или переформулируйте вопрос."
+            "Снизьте reranker threshold или переформулируйте вопрос." + no_sources
         )
     threshold = params.get("similarity_threshold")
     return (
         f"Все найденные фрагменты ({retrieved}) отфильтрованы порогом similarity "
-        f"{threshold}. Снизьте similarity threshold или переформулируйте вопрос."
+        f"{threshold}. Снизьте similarity threshold или переформулируйте вопрос." + no_sources
     )
 
 
@@ -564,11 +574,14 @@ async def build_rag_reply(
     strategy: str,
     history: list[dict],
     options: rag_pipeline.RetrievalOptions | None = None,
+    task_state_data: dict | None = None,
 ) -> dict:
     """RAG-схема: вопрос → поиск релевантных чанков → объединение с вопросом → LLM → ответ.
 
     options=None сохраняет прежнее baseline-поведение; иначе выполняется выбранная
     стратегия поиска (query rewrite / similarity filter / reranker) из rag_pipeline.
+    task_state_data — память задачи диалога: подмешивается в промпт генерации и
+    используется при переформулировке поискового запроса.
     """
     params = get_settings().rag
     if options is None:
@@ -595,12 +608,16 @@ async def build_rag_reply(
             options,
             default_top_k=params.chat_top_k,
             history=history,
+            task_state=task_state_data,
         )
 
     if not hits:
         return {"reply": _empty_hits_reply(debug), "chunks": [], "debug": debug}
 
+    state_block = task_state.format_for_prompt(task_state_data)
+    state_section = f"{state_block}\n\n" if state_block else ""
     user_prompt = (
+        f"{state_section}"
         "Контекст из базы знаний (фрагменты статей pikabu):\n\n"
         f"{_context_block(hits)}\n\n"
         f"Вопрос пользователя: {message}"

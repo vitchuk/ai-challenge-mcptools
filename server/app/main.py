@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import db, mcp_manager, mcp_server, scheduler
+from . import chat_store, db, mcp_manager, mcp_server, scheduler
 from .api import router as api_router
 from .config import ROOT_DIR, get_settings
 from .themes import load_themes
@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
 
     db.init_db()
+    chat_store.init_tables()
     themes = await load_themes()
     mcp_server.register_tools(themes)
     app.state.themes = themes

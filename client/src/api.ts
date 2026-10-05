@@ -2,6 +2,8 @@ import type {
   AppConfig,
   AppStatus,
   ArticlesResponse,
+  ChatsResponse,
+  ChatHistoryResponse,
   ChatResponse,
   ClearDataResponse,
   LatestSummaryResponse,
@@ -55,12 +57,12 @@ export const api = {
     request<McpServerInfo>(`/api/mcp-servers/${encodeURIComponent(name)}/enable`, { method: 'POST' }),
   disableMcpServer: (name: string) =>
     request<McpServerInfo>(`/api/mcp-servers/${encodeURIComponent(name)}/disable`, { method: 'POST' }),
-  sendChat: (message: string, ragStrategy?: string, ragOptions?: RagRetrievalOptions) =>
+  sendChat: (message: string, sessionId: string, ragStrategy?: string, ragOptions?: RagRetrievalOptions) =>
     request<ChatResponse>('/api/chat', {
       method: 'POST',
       body: JSON.stringify({
         message,
-        session_id: getSessionId(),
+        session_id: sessionId,
         rag_strategy: ragStrategy || null,
         rag_options: ragOptions
           ? {
@@ -77,10 +79,13 @@ export const api = {
           : null,
       }),
     }),
-  resetChat: () =>
-    request<{ ok: boolean }>('/api/chat/reset', {
-      method: 'POST',
-      body: JSON.stringify({ session_id: getSessionId() }),
-    }),
+  getChatHistory: (sessionId: string) =>
+    request<ChatHistoryResponse>(`/api/chat/history?session_id=${encodeURIComponent(sessionId)}`),
+  getChats: () => request<ChatsResponse>('/api/chats'),
+  deleteChat: (sessionId: string) =>
+    request<{ ok: boolean; session_id: string }>(
+      `/api/chats/${encodeURIComponent(sessionId)}/delete`,
+      { method: 'POST' },
+    ),
   getRagStrategies: () => request<RagStrategiesResponse>('/api/rag/strategies'),
 }

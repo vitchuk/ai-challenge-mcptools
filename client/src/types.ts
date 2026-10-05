@@ -110,12 +110,46 @@ export interface ToolCallEvent {
   result?: string
 }
 
+export interface TaskState {
+  goal: string | null
+  clarifications: string[]
+  constraints: string[]
+  updated_at?: string | null
+}
+
 export interface ChatResponse {
   reply: string
   tool_calls: ToolCallEvent[]
   chunks?: RagChunkHit[]
   debug?: RagPipelineDebug | null
+  task_state?: TaskState | null
+  chat_id?: string | null
+  chat_title?: string | null
   error?: string
+}
+
+export interface ChatInfo {
+  session_id: string
+  title: string
+  created_at: string
+  updated_at: string
+  messages_count: number
+}
+
+export interface ChatsResponse {
+  count: number
+  chats: ChatInfo[]
+}
+
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatHistoryResponse {
+  session_id: string
+  messages: ChatHistoryMessage[]
+  task_state: TaskState | null
 }
 
 export interface ArticlesResponse {
@@ -174,6 +208,8 @@ export interface ChatMessage {
   chunks?: RagChunkHit[]
   citations?: RagCitation[]
   ragDebug?: RagPipelineDebug | null
+  rag?: boolean
+  taskState?: TaskState | null
   error?: boolean
 }
 
