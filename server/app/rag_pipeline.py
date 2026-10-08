@@ -20,7 +20,7 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from . import deepseek
+from . import llm
 from .task_state import format_for_prompt
 
 logger = logging.getLogger(__name__)
@@ -120,7 +120,7 @@ async def rewrite_query(
         prompt += "История диалога (для контекста):\n" + "\n".join(context_lines) + "\n\n"
     prompt += f"Вопрос пользователя: {query}\n\nПереписанный поисковый запрос:"
 
-    rewritten = await deepseek.complete_text(
+    rewritten = await llm.complete_text(
         REWRITE_SYSTEM_PROMPT, prompt, temperature=0.0, max_tokens=200
     )
     rewritten = rewritten.strip().strip('"').strip("«»").strip()
@@ -185,7 +185,7 @@ async def rerank_candidates(query: str, hits: list[dict]) -> list[float | None]:
         f"Фрагменты:\n{_format_candidates(hits)}\n\n"
         "Оценки в формате JSON:"
     )
-    raw = await deepseek.complete_text(
+    raw = await llm.complete_text(
         RERANK_SYSTEM_PROMPT, user_prompt, temperature=0.0, max_tokens=800
     )
     return _parse_scores(raw, len(hits))
@@ -257,7 +257,7 @@ async def run_retrieval(
         try:
             rewritten_query = await rewrite_query(original_query, history, task_state)
             search_query = rewritten_query
-        except (deepseek.LLMError, PipelineError) as exc:
+        except (llm.LLMError, PipelineError) as exc:
             logger.warning("Query rewrite не удался, используем исходный запрос: %s", exc)
             rewrite_fallback = True
             search_query = original_query
@@ -325,7 +325,7 @@ async def run_retrieval(
             ),
             reverse=True,
         )
-    except (deepseek.LLMError, PipelineError) as exc:
+    except (llm.LLMError, PipelineError) as exc:
         logger.warning("Reranker недоступен, сохраняем порядок similarity: %s", exc)
         reranker_fallback = True
 

@@ -6,6 +6,7 @@ import {
   bumpSummaryVersion,
   chats,
   currentChatId,
+  llmProvider,
   posts,
   ragRetrieval,
   ragStrategy,
@@ -41,6 +42,7 @@ const inputPlaceholder = computed(() =>
 const messages = ref<ChatMessage[]>([])
 const input = ref('')
 const busy = ref(false)
+const streamThinking = ref('')
 const listEl = ref<HTMLElement | null>(null)
 const postStore = ref<Record<string, Post>>({})
 const taskState = ref<TaskState | null>(null)
@@ -57,6 +59,10 @@ const suggestions = [
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function formatSeconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)} с`
 }
 
 function indexPosts(posts: Post[] | undefined) {
@@ -181,12 +187,20 @@ async function send() {
 
   const isRag = Boolean(ragStrategy.value)
   busy.value = true
+  streamThinking.value = ''
   try {
-    const response = await api.sendChat(
+    const response = await api.sendChatStream(
       text,
       chatId,
+      {
+        onThinking: (delta) => {
+          streamThinking.value += delta
+          void scrollDown()
+        },
+      },
       ragStrategy.value || undefined,
       ragStrategy.value ? ragRetrieval.value : undefined,
+      llmProvider.value,
     )
     indexToolResults(response.tool_calls)
     if (response.task_state) taskState.value = response.task_state
@@ -200,6 +214,8 @@ async function send() {
       ragDebug: response.debug,
       rag: isRag && !response.error,
       taskState: response.task_state ?? null,
+      thinking: response.reasoning ?? (streamThinking.value || null),
+      elapsedMs: response.elapsed_ms ?? null,
       error: Boolean(response.error),
     })
     if (response.tool_calls.some((call) => call.name === 'summarize_best_posts' || call.name === 'save_summary')) {
@@ -211,6 +227,7 @@ async function send() {
     addMessage({ role: 'assistant', kind: 'text', text: `Ошибка: ${errorText(error)}`, error: true })
   } finally {
     busy.value = false
+    streamThinking.value = ''
   }
 }
 
@@ -318,6 +335,21 @@ onMounted(async () => {
                 :chunks="message.chunks ?? []"
                 :citations="message.citations"
               />
+              <details
+                v-if="message.thinking"
+                class="mt-2 rounded-lg border border-amber-900/40 bg-amber-950/20 px-2 py-1"
+              >
+                <summary class="cursor-pointer text-xs text-amber-200/90">Размышления</summary>
+                <pre
+                  class="mt-1 max-h-60 overflow-auto whitespace-pre-wrap text-xs text-amber-100/80"
+                >{{ message.thinking }}</pre>
+              </details>
+              <p
+                v-if="message.role === 'assistant' && message.elapsedMs != null"
+                class="mt-1 text-right text-[11px] text-slate-500"
+              >
+                ⏱ {{ formatSeconds(message.elapsedMs) }}
+              </p>
             </div>
 
             <div v-else class="w-full rounded-xl border border-slate-800 bg-slate-900/70 p-4">
@@ -335,10 +367,20 @@ onMounted(async () => {
           </div>
 
           <div v-if="busy" class="flex justify-start">
-            <div class="rounded-2xl border border-slate-800 bg-slate-800/60 px-4 py-2 text-sm text-slate-400">
+            <div class="max-w-[85%] rounded-2xl border border-slate-800 bg-slate-800/60 px-4 py-2 text-sm text-slate-400">
               <span class="animate-pulse">
                 {{ ragStrategy ? 'Ищу релевантные чанки и формирую ответ…' : 'Агент думает и вызывает тулы…' }}
               </span>
+              <details
+                v-if="streamThinking"
+                open
+                class="mt-2 rounded-lg border border-amber-900/40 bg-amber-950/20 px-2 py-1"
+              >
+                <summary class="cursor-pointer text-xs text-amber-200/90">Размышления</summary>
+                <pre
+                  class="mt-1 max-h-60 overflow-auto whitespace-pre-wrap text-xs text-amber-100/80"
+                >{{ streamThinking }}</pre>
+              </details>
             </div>
           </div>
         </div>

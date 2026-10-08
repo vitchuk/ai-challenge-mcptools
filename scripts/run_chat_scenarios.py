@@ -374,7 +374,7 @@ def main() -> int:
                 stop_server(server_proc)
                 return 1
             status = request_with_retry(client, "GET", "/api/status")
-        if not (status.get("llm") or {}).get("configured"):
+        if not ((status.get("llm") or {}).get("deepseek") or {}).get("configured"):
             print("DEEPSEEK_API_KEY не настроен — живой чат невозможен.", file=sys.stderr)
             stop_server(server_proc)
             return 1

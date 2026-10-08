@@ -335,14 +335,18 @@ onUnmounted(() => {
             <dd class="text-slate-300">{{ config?.theme_cache_ttl_sec ?? '—' }} сек</dd>
           </div>
           <div class="flex justify-between gap-2">
-            <dt>LLM модель</dt>
-            <dd class="font-mono text-slate-300">{{ config?.model ?? '—' }}</dd>
+            <dt>LLM DeepSeek</dt>
+            <dd class="font-mono text-slate-300">{{ config?.llm?.deepseek?.model ?? '—' }}</dd>
           </div>
           <div class="flex justify-between gap-2">
-            <dt>API-ключ LLM</dt>
-            <dd :class="config?.llm_configured ? 'text-emerald-300' : 'text-amber-300'">
-              {{ config?.llm_configured ? 'задан' : 'не задан (.env)' }}
+            <dt>Ключ DeepSeek</dt>
+            <dd :class="config?.llm?.deepseek?.configured ? 'text-emerald-300' : 'text-amber-300'">
+              {{ config?.llm?.deepseek?.configured ? 'задан' : 'не задан (.env)' }}
             </dd>
+          </div>
+          <div class="flex justify-between gap-2">
+            <dt>LLM Ollama</dt>
+            <dd class="font-mono text-slate-300">{{ config?.llm?.ollama?.model ?? '—' }}</dd>
           </div>
           <div class="flex justify-between gap-2">
             <dt>Исключённые темы</dt>

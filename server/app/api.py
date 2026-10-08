@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import chat, db, mcp_manager, mcp_server, rag, rag_pipeline, scheduler, tools
+from . import chat, db, llm, llm_log, mcp_manager, mcp_server, rag, rag_pipeline, scheduler, tools
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -49,6 +52,10 @@ class ChatRequest(BaseModel):
         description="Стратегия поиска RAG: baseline / query-rewrite / similarity-filter / "
         "query-rewrite-rerank; None — baseline-поведение",
     )
+    llm_provider: Literal["deepseek", "ollama"] | None = Field(
+        default=None,
+        description="Провайдер LLM для чата: deepseek (облако) или ollama (локальная модель)",
+    )
 
 
 @router.get("/status")
@@ -86,8 +93,15 @@ async def get_status() -> dict:
         "articles_count": db.count_articles(),
         "last_parsed_at": db.last_parsed_at(),
         "llm": {
-            "model": settings.deepseek_model,
-            "configured": bool(settings.deepseek_api_key),
+            "deepseek": {
+                "model": settings.deepseek_model,
+                "configured": bool(settings.deepseek_api_key),
+            },
+            "ollama": {
+                "model": settings.ollama_chat_model,
+                "base_url": settings.ollama_base_url,
+                "available": await llm.check_ollama_available(),
+            },
         },
     }
 
@@ -185,7 +199,45 @@ async def post_chat(
 ) -> dict:
     session_id = (payload.session_id or x_session_id or "default")[:128]
     rag_options = payload.rag_options.to_options() if payload.rag_options else None
-    return await chat.run_chat(session_id, payload.message, payload.rag_strategy, rag_options)
+    provider = payload.llm_provider or llm.DEFAULT_PROVIDER
+    return await chat.run_chat(
+        session_id, payload.message, payload.rag_strategy, rag_options, provider
+    )
+
+
+@router.post("/chat/stream")
+async def post_chat_stream(
+    payload: ChatRequest,
+    x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
+) -> StreamingResponse:
+    """Стрим чата (SSE): события thinking / tool / reply."""
+    session_id = (payload.session_id or x_session_id or "default")[:128]
+    rag_options = payload.rag_options.to_options() if payload.rag_options else None
+    provider = payload.llm_provider or llm.DEFAULT_PROVIDER
+
+    async def event_stream():
+        async for event in chat.run_chat_stream(
+            session_id, payload.message, payload.rag_strategy, rag_options, provider
+        ):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/llm-log")
+async def get_llm_log(limit: int = Query(default=50, ge=1, le=200)) -> dict:
+    """Последние LLM-вызовы (контекст + ответ) для вкладки LOG."""
+    entries = llm_log.recent(limit)
+    return {"count": len(entries), "entries": entries}
+
+
+@router.post("/llm-log/clear")
+async def clear_llm_log() -> dict:
+    return {"cleared": llm_log.clear()}
 
 
 @router.post("/chat/reset")

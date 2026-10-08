@@ -77,7 +77,7 @@ asyncio-задаче. Тулы видны агенту как `server__tool`, ф
 ## Соглашения по коду
 
 - Python: async/await, `from __future__ import annotations`, логирование через `logging`, ошибки
-  парсинга — `parser.ParserError`, LLM — `deepseek.LLMError`.
+  парсинга — `parser.ParserError`, LLM — `llm.LLMError`.
 - Тулы возвращают **строку с JSON** (`json.dumps(..., ensure_ascii=False)`), не бросают исключения наружу.
 - Vue: Composition API `<script setup lang="ts">`, только утилитарные классы Tailwind (без css-файлов,
   кроме `src/style.css`).

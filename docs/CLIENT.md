@@ -9,11 +9,12 @@
 | Файл | Роль |
 | --- | --- |
 | `main.ts` | `createApp(App).mount('#app')` |
-| `App.vue` | Шапка + переключение вкладок «Чат»/«MCP» (`v-show`, роутера нет) |
-| `views/ChatView.vue` | Вкладка «Чат»: три колонки — список чатов, диалог (RAG-индикатор, память задачи, инпут), панель RAG |
+| `App.vue` | Шапка «Ai Playground» + дропдаун выбора LLM-провайдера (DeepSeek/Ollama; недоступный — задизейблен) + вкладки «Чат»/«MCP»/«LOG» (`v-show`, роутера нет) |
+| `views/ChatView.vue` | Вкладка «Чат»: три колонки — список чатов, диалог (RAG-индикатор, память задачи, стрим «размышлений», время ответа, инпут), панель RAG |
 | `views/McpView.vue` | Вкладка «MCP»: две колонки — слева посты/статус парсинга, справа настройки (статус, конфиг, парсинг, саммари, серверы, тулы) |
-| `store.ts` | Общий стор вкладок (без Pinia): `posts`, `articlesCount`, `dataVersion`, `summaryVersion`, `chats`, `currentChatId`, `ragStrategy`, `ragRetrieval` |
-| `api.ts` | REST-клиент; `getSessionId()` (UUID в localStorage), все запросы с `X-Session-Id` |
+| `views/LogView.vue` | Вкладка «LOG»: лог LLM-вызовов (`GET /api/llm-log`, поллинг 3 с) — сворачиваемые блоки запроса (system/user/assistant/tool) и ответа (размышления/тулы/ответ) |
+| `store.ts` | Общий стор вкладок (без Pinia): `posts`, `articlesCount`, `dataVersion`, `summaryVersion`, `chats`, `currentChatId`, `ragStrategy`, `ragRetrieval`, `llmProvider` |
+| `api.ts` | REST-клиент; `getSessionId()` (UUID в localStorage), все запросы с `X-Session-Id`; `sendChatStream` (парсер SSE), `getLlmLog`/`clearLlmLog` |
 | `types.ts` | Типы API и UI (`ChatResponse`, `TaskState`, `RagChunkHit`, `AppStatus`, …) |
 | `citations.ts` | `parseRagCitations(reply)` (`> [id] quote`), `splitHighlighted(text, quotes)` |
 | `style.css` | Единственный css-файл (Tailwind-директивы) |
@@ -34,13 +35,15 @@
 ## Потоки
 
 ### Отправка сообщения (`ChatView.send`)
-`api.sendChat(text, chatId, ragStrategy || undefined, ragStrategy ? ragRetrieval : undefined)` →
-`POST /api/chat` с `{message, session_id, rag_strategy, rag_options}`. В `rag_options`
-`reranker_threshold` уходит только при `reranker_threshold_enabled`. Из ответа: `reply`,
-`tool_calls`, `chunks`, `debug`, `task_state`, `chat_id`, `chat_title`. Сообщение помечается
-`rag: true`, если включён RAG и нет ошибки → под ответом рендерятся `RagSources` (даже при пустых
-chunks) и `RagPipelineInfo`. Если чат новый — после ответа `getChats()` обновляет список; иначе
-`touchChat` поднимает чат наверх.
+`api.sendChatStream(text, chatId, {onThinking, onTool}, ragStrategy || undefined, ragStrategy ? ragRetrieval : undefined, llmProvider)` →
+`POST /api/chat/stream` (SSE) с `{message, session_id, rag_strategy, rag_options, llm_provider}`. В `rag_options`
+`reranker_threshold` уходит только при `reranker_threshold_enabled`. События стрима: `thinking` (дельты
+размышлений — выводятся в раскрывающийся блок «Размышления» под вейтером в рантайме), `tool` (вызов тула),
+`reply` (финальный ответ: `reply`, `tool_calls`, `chunks`, `debug`, `task_state`, `reasoning`, `elapsed_ms`,
+`chat_id`, `chat_title`). Сообщение помечается `rag: true`, если включён RAG и нет ошибки → под ответом
+рендерятся `RagSources` (даже при пустых chunks) и `RagPipelineInfo`. Под assistant-сообщением показываются
+`message.thinking` (блок «Размышления», схлопнут) и `message.elapsedMs` (`⏱ N с`; если ответа нет — ничего).
+Если чат новый — после ответа `getChats()` обновляет список; иначе `touchChat` поднимает чат наверх.
 
 ### Чаты (список, переключение, удаление)
 `ChatView` при старте (`onMounted`) грузит `getChats()` и выбирает `currentChatId` из localStorage

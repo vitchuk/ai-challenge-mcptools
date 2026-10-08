@@ -5,13 +5,17 @@ import type {
   ChatsResponse,
   ChatHistoryResponse,
   ChatResponse,
+  ChatStreamEvent,
   ClearDataResponse,
   LatestSummaryResponse,
+  LlmLogResponse,
+  LlmProvider,
   McpServerInfo,
   ParsingStatus,
   RagRetrievalOptions,
   RagStrategiesResponse,
   ThemesResponse,
+  ToolCallEvent,
   ToolsResponse,
 } from './types'
 
@@ -42,6 +46,40 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+/** Колбэки рантайм-событий стрима чата. */
+export interface ChatStreamHandlers {
+  onThinking?: (delta: string) => void
+  onTool?: (event: ToolCallEvent) => void
+}
+
+function chatBody(
+  message: string,
+  sessionId: string,
+  ragStrategy?: string,
+  ragOptions?: RagRetrievalOptions,
+  llmProvider?: LlmProvider,
+): string {
+  return JSON.stringify({
+    message,
+    session_id: sessionId,
+    rag_strategy: ragStrategy || null,
+    llm_provider: llmProvider ?? null,
+    rag_options: ragOptions
+      ? {
+          strategy: ragOptions.strategy,
+          top_k: ragOptions.top_k,
+          top_k_before: ragOptions.top_k_before,
+          top_k_after: ragOptions.top_k_after,
+          top_k_final: ragOptions.top_k_final,
+          similarity_threshold: ragOptions.similarity_threshold,
+          reranker_threshold: ragOptions.reranker_threshold_enabled
+            ? ragOptions.reranker_threshold
+            : null,
+        }
+      : null,
+  })
+}
+
 export const api = {
   getStatus: () => request<AppStatus>('/api/status'),
   getConfig: () => request<AppConfig>('/api/config'),
@@ -57,28 +95,61 @@ export const api = {
     request<McpServerInfo>(`/api/mcp-servers/${encodeURIComponent(name)}/enable`, { method: 'POST' }),
   disableMcpServer: (name: string) =>
     request<McpServerInfo>(`/api/mcp-servers/${encodeURIComponent(name)}/disable`, { method: 'POST' }),
-  sendChat: (message: string, sessionId: string, ragStrategy?: string, ragOptions?: RagRetrievalOptions) =>
+  sendChat: (
+    message: string,
+    sessionId: string,
+    ragStrategy?: string,
+    ragOptions?: RagRetrievalOptions,
+    llmProvider?: LlmProvider,
+  ) =>
     request<ChatResponse>('/api/chat', {
       method: 'POST',
-      body: JSON.stringify({
-        message,
-        session_id: sessionId,
-        rag_strategy: ragStrategy || null,
-        rag_options: ragOptions
-          ? {
-              strategy: ragOptions.strategy,
-              top_k: ragOptions.top_k,
-              top_k_before: ragOptions.top_k_before,
-              top_k_after: ragOptions.top_k_after,
-              top_k_final: ragOptions.top_k_final,
-              similarity_threshold: ragOptions.similarity_threshold,
-              reranker_threshold: ragOptions.reranker_threshold_enabled
-                ? ragOptions.reranker_threshold
-                : null,
-            }
-          : null,
-      }),
+      body: chatBody(message, sessionId, ragStrategy, ragOptions, llmProvider),
     }),
+  sendChatStream: async (
+    message: string,
+    sessionId: string,
+    handlers: ChatStreamHandlers,
+    ragStrategy?: string,
+    ragOptions?: RagRetrievalOptions,
+    llmProvider?: LlmProvider,
+  ): Promise<ChatResponse> => {
+    const response = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-Id': getSessionId(),
+      },
+      body: chatBody(message, sessionId, ragStrategy, ragOptions, llmProvider),
+    })
+    if (!response.ok || !response.body) {
+      const text = await response.text().catch(() => '')
+      throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`)
+    }
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let final: ChatResponse | null = null
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const frames = buffer.split('\n\n')
+      buffer = frames.pop() ?? ''
+      for (const frame of frames) {
+        const line = frame.split('\n').find((item) => item.startsWith('data:'))
+        if (!line) continue
+        const event = JSON.parse(line.slice(5).trim()) as ChatStreamEvent
+        if (event.type === 'thinking') handlers.onThinking?.(event.delta)
+        else if (event.type === 'tool') handlers.onTool?.(event.event)
+        else if (event.type === 'reply') final = event
+      }
+    }
+    if (!final) throw new Error('Пустой ответ стрима')
+    return final
+  },
+  getLlmLog: (limit = 50) => request<LlmLogResponse>(`/api/llm-log?limit=${limit}`),
+  clearLlmLog: () => request<{ cleared: number }>('/api/llm-log/clear', { method: 'POST' }),
   getChatHistory: (sessionId: string) =>
     request<ChatHistoryResponse>(`/api/chat/history?session_id=${encodeURIComponent(sessionId)}`),
   getChats: () => request<ChatsResponse>('/api/chats'),

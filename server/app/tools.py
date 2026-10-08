@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from . import db, deepseek, parser, scheduler
+from . import db, llm, parser, scheduler
 from .config import ROOT_DIR, get_settings
 from .themes import tool_name_for
 
@@ -107,7 +107,7 @@ async def summarize_best_posts(count: int = 10) -> str:
         )
     try:
         summary = await _summarize_articles(articles)
-    except deepseek.LLMError as exc:
+    except llm.LLMError as exc:
         return _json({"error": str(exc)})
     return _json(summary)
 
@@ -143,7 +143,7 @@ async def _summarize_articles(articles: list[dict], *, folder: bool = True) -> d
     """
     global _last_summary, _last_summary_dir
     system_prompt, user_prompt = _build_prompt(articles)
-    raw = await deepseek.complete_text(system_prompt, user_prompt, temperature=0.4, max_tokens=2500)
+    raw = await llm.complete_text(system_prompt, user_prompt, temperature=0.4, max_tokens=2500)
     title, summary = _parse_summary(raw, fallback_title=articles[0]["title"])
     images, videos = _collect_media(articles)
     posts = [{"title": a.get("title"), "url": a.get("url")} for a in articles]
