@@ -62,20 +62,33 @@ APScheduler: интервальный парсинг, `start_scheduler`/`stop_sc
 `screenshot_flow_hint`, `SEPARATOR = "__"`. Сессия в своей asyncio-задаче (anyio: вход/выход из
 контекстных менеджеров — в одной задаче). **Не импортирует `tools`.**
 
-### `deepseek.py`
-Обёртка AsyncOpenAI: `is_configured`, `get_client`, `complete_messages`, `complete_text`.
-`LLMError`/`LLMNotConfigured`. Без `DEEPSEEK_API_KEY` — понятная ошибка `llm_not_configured`.
+### `llm.py`
+Провайдеры LLM (OpenAI-совместимые): `deepseek` и локальный `ollama` (`{ollama_base_url}/v1`).
+`normalize_provider`, `is_configured`, `chat_model`, `get_client(provider)`, `check_ollama_available`.
+`complete(...)` — один вызов (без стрима), возвращает `{content, reasoning, tool_calls}` и логирует в
+`llm_log`. `stream_complete(...)` — стрим (async-генератор дельт `reasoning`/`content` + финальный
+`done`), тоже логирует. `complete_messages`/`complete_text` — обёртки над `complete` (phase `aux`/`rag`).
+`LLMError`/`LLMNotConfigured`. Для DeepSeek без `DEEPSEEK_API_KEY` — ошибка `llm_not_configured`.
+
+### `llm_log.py`
+Кольцевой буфер LLM-вызовов **в памяти** (последние 200, не персистится) для вкладки LOG.
+`log_call` (контекст запроса + ответ + `duration_ms`/`error`), `recent(limit)` (свежие сверху), `clear`.
 
 ### `chat.py`
-`run_chat(session_id, message, rag_strategy, rag_options)` — главный вход чата. `_run_rag_chat`,
-`route_tool_call`, `_system_prompt`, `all_tools_schema`, rate limit, `reset_session` (удаляет чат),
-`list_chats`, `load_session`. История — через `chat_store` (чат создаётся при первом сообщении).
-Возвращает `{reply, tool_calls, chunks?, debug?, task_state?, chat_id, chat_title, error?}`.
+`run_chat(session_id, message, rag_strategy, rag_options, llm_provider)` — главный вход чата (без стрима).
+`run_chat_stream(...)` — async-генератор SSE-событий (`thinking`/`tool`/`reply`) для веб-клиента.
+`_run_agent_chat_stream` (агентный цикл через `llm.stream_complete`), `_run_rag_chat_stream`
+(стрим финальной генерации RAG). `_run_rag_chat`, `route_tool_call`, `_system_prompt`, `all_tools_schema`,
+rate limit, `reset_session` (удаляет чат), `list_chats`, `load_session`. `llm_provider` (`deepseek`/`ollama`)
+выбирает модель для генерации ответа; служебные LLM-вызовы остаются на DeepSeek. `elapsed_ms` — полное
+время обработки. История — через `chat_store`. Возвращает `{reply, tool_calls, chunks?, debug?,
+task_state?, chat_id, chat_title, reasoning?, elapsed_ms?, error?}`.
 
 ### `rag.py`
 RAG: парсинг `pikabu-txt.md`, чанкинг (`fixed`/`paragraph`, `CHUNKERS`), эмбеддинги ollama
 (`embed_texts`), индексы (`build_index`, `load_index`, `list_indexes`), `search`, `RAG_SYSTEM_PROMPT`,
-`build_rag_reply(message, strategy, history, options, task_state_data)`. CLI: `python -m app.rag build|list|search`.
+`build_rag_reply(message, strategy, history, options, task_state_data, provider)` и
+`build_rag_reply_stream(...)` (деривация `reasoning` + финальный `done`). CLI: `python -m app.rag build|list|search`.
 Детали — [RAG.md](RAG.md).
 
 ### `rag_pipeline.py`

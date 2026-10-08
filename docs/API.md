@@ -10,7 +10,7 @@
 
 | Метод | Путь | Параметры / тело | Возвращает |
 | --- | --- | --- | --- |
-| GET | `/api/status` | — | `mcp` (connected/transport/tools_count), `servers[]`, `parsing`, `articles_count`, `last_parsed_at`, `llm` |
+| GET | `/api/status` | — | `mcp` (connected/transport/tools_count), `servers[]`, `parsing`, `articles_count`, `last_parsed_at`, `llm` (`deepseek`/`ollama`) |
 | GET | `/api/config` | — | публичный конфиг (`public_config()`, без секретов) |
 | GET | `/api/articles` | `limit` (1..500, по умолч. 100) | `{count, articles[]}` |
 | GET | `/api/tools` | — | `{count, tools[]}` (встроенные + внешние, поле `server`) |
@@ -23,7 +23,10 @@
 | POST | `/api/parsing/run-now` | — | результат парсинга (`ok`, `new`, …) |
 | POST | `/api/parsing/clear-data` | — | `{cleared_articles, cleared_summaries, cleared_mcp_outputs}` |
 | GET | `/api/summary/latest` | — | `{exists, file, folder, summary}` |
-| POST | `/api/chat` | `{message, session_id?, rag_strategy?, rag_options?}` | `ChatResponse` (включая `chat_id`, `chat_title`) |
+| POST | `/api/chat` | `{message, session_id?, rag_strategy?, rag_options?, llm_provider?}` | `ChatResponse` (включая `chat_id`, `chat_title`) |
+| POST | `/api/chat/stream` | то же тело, что `/api/chat` | SSE: события `thinking` / `tool` / `reply` |
+| GET | `/api/llm-log` | `limit` (1..200, по умолч. 50) | `{count, entries[]}` — лог LLM-вызовов (свежие сверху) |
+| POST | `/api/llm-log/clear` | — | `{cleared}` |
 | GET | `/api/chat/history` | заголовок `X-Session-Id` или `session_id` | `{session_id, messages[], task_state}` |
 | POST | `/api/chat/reset` | `{session_id?}` | `{ok, session_id}` (удаляет чат целиком) |
 | GET | `/api/chats` | — | `{count, chats[]}` (заголовок = первый вопрос, свежие сверху) |
@@ -42,6 +45,7 @@
 {
   "message": "Что известно о наклоне земной оси?",
   "session_id": "uuid",
+  "llm_provider": "deepseek",
   "rag_strategy": "fixed",
   "rag_options": {
     "strategy": "query-rewrite-rerank",
@@ -55,6 +59,8 @@
 }
 ```
 
+- `llm_provider` — `deepseek` (облако, по умолчанию) или `ollama` (локальная модель); влияет на генерацию
+  ответа (агентский и RAG-чат). Служебные LLM-вызовы (rewrite/rerank, память задачи, саммари) — на DeepSeek.
 - `rag_strategy` — id **стратегии чанкинга** (`fixed`/`paragraph`) или `null` → агентский режим (без RAG).
 - `rag_options` — **стратегия поиска** (`baseline` / `query-rewrite` / `similarity-filter` /
   `query-rewrite-rerank`) и её параметры; `null` — baseline-поведение.
@@ -77,12 +83,27 @@
   "task_state": {"goal": "…", "clarifications": ["…"], "constraints": ["…"], "updated_at": "…"},
   "chat_id": "uuid",
   "chat_title": "Первый вопрос пользователя…",
+  "reasoning": "…размышления модели (если есть; ollama/qwen3)…",
+  "elapsed_ms": 4213.7,
   "error": null
 }
 ```
 
 В агентском режиме `chunks` = `[]`, `debug`/`task_state` отсутствуют. `chat_id` = `session_id`,
-`chat_title` = заголовок чата (обрезка первого вопроса).
+`chat_title` = заголовок чата (обрезка первого вопроса). `reasoning` — размышления модели (для
+thinking-моделей, напр. локальной ollama/qwen3; у `deepseek-chat` отсутствуют). `elapsed_ms` —
+полное время обработки запроса в миллисекундах.
+
+## `POST /api/chat/stream` (SSE)
+
+Стрим-вариант `/api/chat`: ответ `text/event-stream`, кадры `data: {json}\n\n`. Типы событий:
+
+- `{"type": "thinking", "delta": "…"}` — фрагмент размышлений модели (в рантайме);
+- `{"type": "tool", "event": {name, arguments, result_preview, result}}` — вызов тула;
+- `{"type": "reply", ...}` — финальный `ChatResponse` (с `reasoning`, `elapsed_ms`, `error`).
+
+Валидационные ошибки (пустое/длинное сообщение, rate limit, `llm_not_configured`) приходят одним
+событием `reply` с полем `error`. Лог всех LLM-вызовов доступен во вкладке LOG (`/api/llm-log`).
 
 ## Примеры (curl)
 

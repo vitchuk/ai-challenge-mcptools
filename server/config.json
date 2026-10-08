@@ -18,6 +18,8 @@
   "chat_history_limit": 20,
   "chat_rate_limit_per_minute": 20,
   "chat_max_message_chars": 4000,
+  "ollama_base_url": "http://127.0.0.1:11434",
+  "ollama_chat_model": "qwen3:1.7b",
   "allowed_screenshot_hosts": ["pikabu.ru"],
   "rag": {
     "source_file": "pikabu-txt.md",

@@ -97,6 +97,10 @@ class Settings:
     chat_rate_limit_per_minute: int
     chat_max_message_chars: int
 
+    # Ollama (локальная LLM, OpenAI-совместимый API)
+    ollama_base_url: str
+    ollama_chat_model: str
+
     # Внешние MCP-серверы
     allowed_screenshot_hosts: list[str]
     external_mcp_servers: list[dict]
@@ -121,8 +125,16 @@ class Settings:
             "autostart_parsing": self.autostart_parsing,
             "max_post_age_hours": self.max_post_age_hours,
             "auto_summary_after_parse": self.auto_summary_after_parse,
-            "model": self.deepseek_model,
-            "llm_configured": bool(self.deepseek_api_key),
+            "llm": {
+                "deepseek": {
+                    "model": self.deepseek_model,
+                    "configured": bool(self.deepseek_api_key),
+                },
+                "ollama": {
+                    "model": self.ollama_chat_model,
+                    "base_url": self.ollama_base_url,
+                },
+            },
             "chat_max_iterations": self.chat_max_iterations,
             "chat_rate_limit_per_minute": self.chat_rate_limit_per_minute,
             "chat_max_message_chars": self.chat_max_message_chars,
@@ -179,6 +191,14 @@ def get_settings() -> Settings:
         chat_history_limit=int(raw.get("chat_history_limit", 20)),
         chat_rate_limit_per_minute=int(raw.get("chat_rate_limit_per_minute", 20)),
         chat_max_message_chars=int(raw.get("chat_max_message_chars", 4000)),
+        ollama_base_url=os.getenv(
+            "OLLAMA_BASE_URL", str(raw.get("ollama_base_url", "http://127.0.0.1:11434"))
+        )
+        .strip()
+        .rstrip("/"),
+        ollama_chat_model=os.getenv(
+            "OLLAMA_CHAT_MODEL", str(raw.get("ollama_chat_model", "qwen3:1.7b"))
+        ).strip(),
         allowed_screenshot_hosts=list(raw.get("allowed_screenshot_hosts", ["pikabu.ru"])),
         external_mcp_servers=list(raw.get("external_mcp_servers", [])),
         database_path=_resolve_path(str(raw.get("database_path", "server/data/pikabu.db"))),

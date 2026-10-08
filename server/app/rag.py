@@ -22,7 +22,7 @@ from pathlib import Path
 
 import httpx
 
-from . import deepseek, rag_pipeline, task_state
+from . import llm, rag_pipeline, task_state
 from .config import RagSettings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -569,19 +569,16 @@ def _empty_hits_reply(debug: dict) -> str:
     )
 
 
-async def build_rag_reply(
+async def _rag_context(
     message: str,
     strategy: str,
     history: list[dict],
-    options: rag_pipeline.RetrievalOptions | None = None,
-    task_state_data: dict | None = None,
-) -> dict:
-    """RAG-схема: вопрос → поиск релевантных чанков → объединение с вопросом → LLM → ответ.
+    options: rag_pipeline.RetrievalOptions | None,
+    task_state_data: dict | None,
+) -> tuple[list[dict] | None, list[dict], dict]:
+    """Общая часть RAG: поиск чанков и сборка сообщений для LLM.
 
-    options=None сохраняет прежнее baseline-поведение; иначе выполняется выбранная
-    стратегия поиска (query rewrite / similarity filter / reranker) из rag_pipeline.
-    task_state_data — память задачи диалога: подмешивается в промпт генерации и
-    используется при переформулировке поискового запроса.
+    Возвращает (messages, chunks, debug); messages=None, если релевантных чанков нет.
     """
     params = get_settings().rag
     if options is None:
@@ -612,7 +609,7 @@ async def build_rag_reply(
         )
 
     if not hits:
-        return {"reply": _empty_hits_reply(debug), "chunks": [], "debug": debug}
+        return None, [], debug
 
     state_block = task_state.format_for_prompt(task_state_data)
     state_section = f"{state_block}\n\n" if state_block else ""
@@ -625,8 +622,72 @@ async def build_rag_reply(
     messages: list[dict] = [{"role": "system", "content": RAG_SYSTEM_PROMPT}]
     messages.extend(history)
     messages.append({"role": "user", "content": user_prompt})
-    reply = await deepseek.complete_messages(messages)
-    return {"reply": reply, "chunks": [_chunk_hit(hit) for hit in hits], "debug": debug}
+    return messages, [_chunk_hit(hit) for hit in hits], debug
+
+
+async def build_rag_reply(
+    message: str,
+    strategy: str,
+    history: list[dict],
+    options: rag_pipeline.RetrievalOptions | None = None,
+    task_state_data: dict | None = None,
+    provider: str = llm.DEFAULT_PROVIDER,
+) -> dict:
+    """RAG-схема: вопрос → поиск релевантных чанков → объединение с вопросом → LLM → ответ.
+
+    options=None сохраняет прежнее baseline-поведение; иначе выполняется выбранная
+    стратегия поиска (query rewrite / similarity filter / reranker) из rag_pipeline.
+    task_state_data — память задачи диалога: подмешивается в промпт генерации и
+    используется при переформулировке поискового запроса.
+    """
+    messages, chunks, debug = await _rag_context(
+        message, strategy, history, options, task_state_data
+    )
+    if messages is None:
+        return {"reply": _empty_hits_reply(debug), "chunks": [], "debug": debug}
+    reply = await llm.complete_messages(messages, provider=provider, phase="rag")
+    return {"reply": reply, "chunks": chunks, "debug": debug}
+
+
+async def build_rag_reply_stream(
+    message: str,
+    strategy: str,
+    history: list[dict],
+    options: rag_pipeline.RetrievalOptions | None = None,
+    task_state_data: dict | None = None,
+    provider: str = llm.DEFAULT_PROVIDER,
+):
+    """Стрим-вариант `build_rag_reply`: дельты размышлений + финальный результат.
+
+    Генерирует `{"reasoning": str}` по мере генерации и в конце
+    `{"done": {reply, chunks, debug, reasoning}}`.
+    """
+    messages, chunks, debug = await _rag_context(
+        message, strategy, history, options, task_state_data
+    )
+    if messages is None:
+        yield {
+            "done": {
+                "reply": _empty_hits_reply(debug),
+                "chunks": [],
+                "debug": debug,
+                "reasoning": None,
+            }
+        }
+        return
+    async for event in llm.stream_complete(messages, provider=provider, phase="rag"):
+        if "done" in event:
+            result = event["done"]
+            yield {
+                "done": {
+                    "reply": result["content"],
+                    "chunks": chunks,
+                    "debug": debug,
+                    "reasoning": result["reasoning"],
+                }
+            }
+        elif event.get("reasoning"):
+            yield {"reasoning": event["reasoning"]}
 
 
 # --- CLI ---

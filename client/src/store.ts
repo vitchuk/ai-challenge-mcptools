@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { ChatInfo, Post, RagRetrievalOptions } from './types'
+import type { ChatInfo, LlmProvider, Post, RagRetrievalOptions } from './types'
 
 /** Общий стор для связи вкладок: счётчик статей и версия данных (bump при очистке/парсинге). */
 export const articlesCount = ref(0)
@@ -108,4 +108,18 @@ export function setRagStrategy(strategy: string) {
 export function setRagRetrieval(options: RagRetrievalOptions) {
   ragRetrieval.value = { ...options }
   localStorage.setItem(RAG_RETRIEVAL_KEY, JSON.stringify(options))
+}
+
+// --- LLM-провайдер ---
+
+const LLM_PROVIDER_KEY = 'pikabu-mcp-llm-provider'
+
+/** Выбранный провайдер LLM для чата: 'deepseek' (облако) или 'ollama' (локальная модель). */
+export const llmProvider = ref<LlmProvider>(
+  (localStorage.getItem(LLM_PROVIDER_KEY) as LlmProvider | null) ?? 'deepseek',
+)
+
+export function setLlmProvider(provider: LlmProvider) {
+  llmProvider.value = provider
+  localStorage.setItem(LLM_PROVIDER_KEY, provider)
 }

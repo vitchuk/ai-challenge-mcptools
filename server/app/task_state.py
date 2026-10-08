@@ -13,7 +13,7 @@ LLM используется rule-based fallback: прежнее состоян�
 необходимости заполняется из первого/текущего сообщения. Состояние хранится
 отдельно от окна истории, поэтому не теряется при длинных диалогах.
 
-Модуль не импортирует rag/chat/tools — только deepseek, чтобы не было циклов.
+Модуль не импортирует rag/chat/tools — только llm, чтобы не было циклов.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from . import deepseek
+from . import llm
 
 logger = logging.getLogger(__name__)
 
@@ -157,10 +157,10 @@ async def update_state(
     prompt = "\n".join(prompt_parts)
 
     try:
-        raw = await deepseek.complete_text(
+        raw = await llm.complete_text(
             EXTRACT_SYSTEM_PROMPT, prompt, temperature=0.0, max_tokens=700
         )
-    except deepseek.LLMError as exc:
+    except llm.LLMError as exc:
         logger.warning("Экстрактор памяти задачи недоступен, fallback: %s", exc)
         return _fallback_state(user_message, previous)
 

@@ -1,3 +1,5 @@
+export type LlmProvider = 'deepseek' | 'ollama'
+
 export interface Post {
   story_id: number
   title: string
@@ -64,8 +66,8 @@ export interface AppStatus {
   articles_count: number
   last_parsed_at: string | null
   llm: {
-    model: string
-    configured: boolean
+    deepseek: { model: string; configured: boolean }
+    ollama: { model: string; base_url: string; available: boolean }
   }
 }
 
@@ -86,8 +88,10 @@ export interface AppConfig {
   autostart_parsing: boolean
   max_post_age_hours: number
   auto_summary_after_parse: boolean
-  model: string
-  llm_configured: boolean
+  llm: {
+    deepseek: { model: string; configured: boolean }
+    ollama: { model: string; base_url: string }
+  }
   chat_max_iterations: number
   chat_rate_limit_per_minute: number
   chat_max_message_chars: number
@@ -125,7 +129,43 @@ export interface ChatResponse {
   task_state?: TaskState | null
   chat_id?: string | null
   chat_title?: string | null
+  reasoning?: string | null
+  elapsed_ms?: number | null
   error?: string
+}
+
+/** Событие SSE-стрима чата (`POST /api/chat/stream`). */
+export type ChatStreamEvent =
+  | { type: 'thinking'; delta: string }
+  | { type: 'tool'; event: ToolCallEvent }
+  | ({ type: 'reply' } & ChatResponse)
+
+export interface LlmLogToolCall {
+  id: string
+  type: string
+  function: { name: string; arguments: string }
+}
+
+export interface LlmLogEntry {
+  id: number
+  ts: string
+  phase: string
+  provider: string
+  model: string
+  messages: Array<Record<string, unknown>>
+  tools_count: number
+  response: {
+    content?: string | null
+    reasoning?: string | null
+    tool_calls?: LlmLogToolCall[]
+  } | null
+  duration_ms: number | null
+  error: string | null
+}
+
+export interface LlmLogResponse {
+  count: number
+  entries: LlmLogEntry[]
 }
 
 export interface ChatInfo {
@@ -210,6 +250,8 @@ export interface ChatMessage {
   ragDebug?: RagPipelineDebug | null
   rag?: boolean
   taskState?: TaskState | null
+  thinking?: string | null
+  elapsedMs?: number | null
   error?: boolean
 }
 
