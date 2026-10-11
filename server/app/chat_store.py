@@ -219,3 +219,13 @@ def delete_chat(session_id: str) -> None:
         conn.execute("DELETE FROM chats WHERE session_id = ?", (session_id,))
         conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
         conn.execute("DELETE FROM chat_task_states WHERE session_id = ?", (session_id,))
+
+
+def delete_all_chats() -> int:
+    """Удаляет все чаты (метаданные, историю, память задачи). Возвращает число чатов."""
+    with _lock, _connect() as conn:
+        count = int(conn.execute("SELECT COUNT(*) FROM chats").fetchone()[0])
+        conn.execute("DELETE FROM chat_messages")
+        conn.execute("DELETE FROM chat_task_states")
+        conn.execute("DELETE FROM chats")
+    return count

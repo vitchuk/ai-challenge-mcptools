@@ -389,6 +389,12 @@ def main() -> int:
 
             probe = run_no_sources_probe(client)
             probe_path = write_probe(probe)
+
+            # чистим созданные для теста чаты (транскрипты остаются в docs/scenarios)
+            cleanup_ids = [scenario["id"] for scenario in SCENARIOS] + [NO_SOURCES_PROBE["session_id"]]
+            for session_id in cleanup_ids:
+                reset_session(client, session_id)
+            print(f"Удалено тестовых чатов: {len(cleanup_ids)}")
         finally:
             stop_server(server_proc)
 

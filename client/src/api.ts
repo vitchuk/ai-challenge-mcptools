@@ -10,6 +10,7 @@ import type {
   LatestSummaryResponse,
   LlmLogResponse,
   LlmProvider,
+  LlmSampling,
   McpServerInfo,
   ParsingStatus,
   RagRetrievalOptions,
@@ -58,12 +59,21 @@ function chatBody(
   ragStrategy?: string,
   ragOptions?: RagRetrievalOptions,
   llmProvider?: LlmProvider,
+  sampling?: LlmSampling,
 ): string {
   return JSON.stringify({
     message,
     session_id: sessionId,
     rag_strategy: ragStrategy || null,
     llm_provider: llmProvider ?? null,
+    sampling: sampling
+      ? {
+          temperature: sampling.temperature,
+          top_p: sampling.topP,
+          top_k: sampling.topK > 0 ? sampling.topK : null,
+          no_think: sampling.noThink,
+        }
+      : null,
     rag_options: ragOptions
       ? {
           strategy: ragOptions.strategy,
@@ -101,10 +111,11 @@ export const api = {
     ragStrategy?: string,
     ragOptions?: RagRetrievalOptions,
     llmProvider?: LlmProvider,
+    sampling?: LlmSampling,
   ) =>
     request<ChatResponse>('/api/chat', {
       method: 'POST',
-      body: chatBody(message, sessionId, ragStrategy, ragOptions, llmProvider),
+      body: chatBody(message, sessionId, ragStrategy, ragOptions, llmProvider, sampling),
     }),
   sendChatStream: async (
     message: string,
@@ -113,6 +124,7 @@ export const api = {
     ragStrategy?: string,
     ragOptions?: RagRetrievalOptions,
     llmProvider?: LlmProvider,
+    sampling?: LlmSampling,
   ): Promise<ChatResponse> => {
     const response = await fetch('/api/chat/stream', {
       method: 'POST',
@@ -120,7 +132,7 @@ export const api = {
         'Content-Type': 'application/json',
         'X-Session-Id': getSessionId(),
       },
-      body: chatBody(message, sessionId, ragStrategy, ragOptions, llmProvider),
+      body: chatBody(message, sessionId, ragStrategy, ragOptions, llmProvider, sampling),
     })
     if (!response.ok || !response.body) {
       const text = await response.text().catch(() => '')
@@ -158,5 +170,7 @@ export const api = {
       `/api/chats/${encodeURIComponent(sessionId)}/delete`,
       { method: 'POST' },
     ),
+  deleteAllChats: () =>
+    request<{ ok: boolean; deleted: number }>('/api/chats/delete-all', { method: 'POST' }),
   getRagStrategies: () => request<RagStrategiesResponse>('/api/rag/strategies'),
 }

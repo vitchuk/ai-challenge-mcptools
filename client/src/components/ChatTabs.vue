@@ -9,21 +9,33 @@ withDefaults(
 const emit = defineEmits<{
   (e: 'select', id: string): void
   (e: 'delete', id: string): void
+  (e: 'delete-all'): void
   (e: 'new'): void
 }>()
 </script>
 
 <template>
   <div class="flex h-full flex-col">
-    <div class="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
-      <span class="text-xs font-medium uppercase tracking-wide text-slate-400">Чаты ({{ chats.length }})</span>
+    <div class="border-b border-slate-800 px-3 py-2">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-xs font-medium uppercase tracking-wide text-slate-400">Чаты ({{ chats.length }})</span>
+        <button
+          type="button"
+          :disabled="busy"
+          class="rounded-lg border border-slate-700 px-2 py-1 text-xs text-slate-200 transition hover:border-indigo-500 hover:text-indigo-300 disabled:opacity-40"
+          @click="emit('new')"
+        >
+          + Новый чат
+        </button>
+      </div>
       <button
+        v-if="chats.length"
         type="button"
         :disabled="busy"
-        class="rounded-lg border border-slate-700 px-2 py-1 text-xs text-slate-200 transition hover:border-indigo-500 hover:text-indigo-300 disabled:opacity-40"
-        @click="emit('new')"
+        class="mt-2 w-full rounded-lg border border-slate-800 px-2 py-1 text-[11px] text-slate-400 transition hover:border-red-500 hover:text-red-300 disabled:opacity-40"
+        @click="emit('delete-all')"
       >
-        + Новый чат
+        Удалить все чаты
       </button>
     </div>
 

@@ -84,12 +84,25 @@ cd server && ../.venv/bin/python -m app.main
 
 Сервер поднимется на `http://127.0.0.1:8000`, MCP-эндпоинт — `http://127.0.0.1:8000/mcp`.
 
-### 2. Фронтенд (режим разработки)
+### 2. Запуск в одном терминале (бэкенд + клиент)
 
 ```powershell
-cd client
-npm install
-npm run dev          # http://localhost:5173, проксирует /api и /mcp на :8000
+# из корня проекта: поднимает бэкенд (:8000) и Vite (:5173), вывод обоих — в этом терминале
+.\.venv\Scripts\python.exe scripts\dev.py
+```
+
+Или просто запустите `start.bat` (двойной клик) — он включает UTF-8 и вызывает `scripts\dev.py`.
+
+Ctrl+C останавливает оба процесса. Vite проксирует `/api` и `/mcp` на `:8000`.
+
+Если нужно запускать раздельно (два терминала):
+
+```powershell
+# терминал 1 — бэкенд
+cd server; ..\.venv\Scripts\python.exe -m app.main
+
+# терминал 2 — клиент
+cd client; npm install; npm run dev
 ```
 
 ### 3. Production (один процесс)

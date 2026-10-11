@@ -41,6 +41,25 @@ class RagOptionsPayload(BaseModel):
         )
 
 
+class ChatSamplingPayload(BaseModel):
+    """Параметры генерации LLM для вкладки «Чат»."""
+
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0)
+    top_k: int | None = Field(default=None, ge=1, le=200)
+    no_think: bool | None = Field(
+        default=None, description="Отключить размышления (только Ollama, экономия токенов)"
+    )
+
+    def to_params(self) -> llm.SamplingParams:
+        return llm.SamplingParams(
+            temperature=self.temperature,
+            top_p=self.top_p,
+            top_k=self.top_k,
+            no_think=bool(self.no_think),
+        )
+
+
 class ChatRequest(BaseModel):
     message: str = Field(default="", description="Сообщение пользователя")
     session_id: str | None = Field(default=None, max_length=128)
@@ -55,6 +74,9 @@ class ChatRequest(BaseModel):
     llm_provider: Literal["deepseek", "ollama"] | None = Field(
         default=None,
         description="Провайдер LLM для чата: deepseek (облако) или ollama (локальная модель)",
+    )
+    sampling: ChatSamplingPayload | None = Field(
+        default=None, description="Параметры генерации (temperature / top_p / top_k / no_think)"
     )
 
 
@@ -200,8 +222,9 @@ async def post_chat(
     session_id = (payload.session_id or x_session_id or "default")[:128]
     rag_options = payload.rag_options.to_options() if payload.rag_options else None
     provider = payload.llm_provider or llm.DEFAULT_PROVIDER
+    sampling = payload.sampling.to_params() if payload.sampling else None
     return await chat.run_chat(
-        session_id, payload.message, payload.rag_strategy, rag_options, provider
+        session_id, payload.message, payload.rag_strategy, rag_options, provider, sampling
     )
 
 
@@ -214,10 +237,11 @@ async def post_chat_stream(
     session_id = (payload.session_id or x_session_id or "default")[:128]
     rag_options = payload.rag_options.to_options() if payload.rag_options else None
     provider = payload.llm_provider or llm.DEFAULT_PROVIDER
+    sampling = payload.sampling.to_params() if payload.sampling else None
 
     async def event_stream():
         async for event in chat.run_chat_stream(
-            session_id, payload.message, payload.rag_strategy, rag_options, provider
+            session_id, payload.message, payload.rag_strategy, rag_options, provider, sampling
         ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
@@ -273,6 +297,14 @@ async def delete_chat(session_id: str) -> dict:
     sid = session_id[:128]
     chat.reset_session(sid)
     return {"ok": True, "session_id": sid}
+
+
+@router.post("/chats/delete-all")
+async def delete_all_chats() -> dict:
+    """Удаляет все сохранённые чаты. Возвращает число удалённых."""
+    deleted = chat.clear_all_chats()
+    logger.info("Удалены все чаты: %s", deleted)
+    return {"ok": True, "deleted": deleted}
 
 
 @router.get("/rag/strategies")

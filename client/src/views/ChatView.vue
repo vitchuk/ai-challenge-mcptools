@@ -7,6 +7,7 @@ import {
   chats,
   currentChatId,
   llmProvider,
+  llmSampling,
   posts,
   ragRetrieval,
   ragStrategy,
@@ -168,6 +169,25 @@ async function deleteChat(id: string) {
   }
 }
 
+async function deleteAllChats() {
+  if (busy.value || !chats.value.length) return
+  if (
+    !window.confirm(
+      `Удалить все чаты (${chats.value.length})? История и память задачи будут удалены безвозвратно.`,
+    )
+  ) {
+    return
+  }
+  try {
+    await api.deleteAllChats()
+  } catch (error) {
+    addMessage({ role: 'assistant', kind: 'text', text: `Не удалось удалить чаты: ${errorText(error)}`, error: true })
+    return
+  }
+  setChats([])
+  newChat()
+}
+
 async function send() {
   const text = input.value.trim()
   if (!text || busy.value) return
@@ -201,6 +221,7 @@ async function send() {
       ragStrategy.value || undefined,
       ragStrategy.value ? ragRetrieval.value : undefined,
       llmProvider.value,
+      llmSampling.value,
     )
     indexToolResults(response.tool_calls)
     if (response.task_state) taskState.value = response.task_state
@@ -275,6 +296,7 @@ onMounted(async () => {
         :busy="busy"
         @select="selectChat"
         @delete="deleteChat"
+        @delete-all="deleteAllChats"
         @new="newChat"
       />
     </aside>

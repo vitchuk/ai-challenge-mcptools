@@ -91,6 +91,11 @@ def reset_session(session_id: str) -> None:
     chat_store.delete_chat(session_id)
 
 
+def clear_all_chats() -> int:
+    """Удаляет все сохранённые чаты. Возвращает число удалённых."""
+    return chat_store.delete_all_chats()
+
+
 def list_chats() -> list[dict]:
     """Список сохранённых чатов (свежие сверху)."""
     return chat_store.list_chats()
@@ -103,20 +108,6 @@ def load_session(session_id: str) -> dict:
         "messages": _load_history(session_id),
         "task_state": chat_store.load_task_state(session_id),
     }
-
-
-def _assistant_message_payload(message) -> dict:
-    payload: dict = {"role": "assistant", "content": message.content or ""}
-    if message.tool_calls:
-        payload["tool_calls"] = [
-            {
-                "id": call.id,
-                "type": "function",
-                "function": {"name": call.function.name, "arguments": call.function.arguments or "{}"},
-            }
-            for call in message.tool_calls
-        ]
-    return payload
 
 
 def _parse_arguments(raw: str | None) -> dict:
@@ -136,6 +127,7 @@ async def _run_rag_chat(
     options: rag_pipeline.RetrievalOptions | None = None,
     provider: str = llm.DEFAULT_PROVIDER,
     started: float | None = None,
+    sampling: llm.SamplingParams | None = None,
 ) -> dict:
     """Чат в RAG-режиме: чанки выбранной стратегии и память задачи подмешиваются в вопрос к LLM."""
     history = _load_history(session_id)
@@ -148,7 +140,7 @@ async def _run_rag_chat(
 
     try:
         result = await rag.build_rag_reply(
-            user_message, strategy, history, options, state, provider=provider
+            user_message, strategy, history, options, state, provider=provider, sampling=sampling
         )
     except rag.RagError as exc:
         return {
@@ -199,11 +191,13 @@ async def run_chat(
     rag_strategy: str | None = None,
     rag_options: rag_pipeline.RetrievalOptions | None = None,
     llm_provider: str = llm.DEFAULT_PROVIDER,
+    sampling: llm.SamplingParams | None = None,
 ) -> dict:
     settings = get_settings()
     user_message = (user_message or "").strip()
     rag_strategy = (rag_strategy or "").strip() or None
     provider = llm.normalize_provider(llm_provider)
+    sampling = sampling or llm.SamplingParams()
     started = time.monotonic()
 
     if not user_message:
@@ -232,10 +226,9 @@ async def run_chat(
 
     if rag_strategy:
         return await _run_rag_chat(
-            session_id, user_message, rag_strategy, rag_options, provider, started
+            session_id, user_message, rag_strategy, rag_options, provider, started, sampling
         )
 
-    client = llm.get_client(provider)
     messages: list[dict] = [{"role": "system", "content": _system_prompt()}]
     messages.extend(_load_history(session_id))
     messages.append({"role": "user", "content": user_message})
@@ -244,32 +237,33 @@ async def run_chat(
     final_reply = ""
     try:
         for _ in range(max(1, settings.chat_max_iterations)):
-            response = await client.chat.completions.create(
-                model=llm.chat_model(provider),
-                messages=messages,
+            result = await llm.complete(
+                messages,
+                provider=provider,
                 tools=all_tools_schema(),
-                tool_choice="auto",
-                temperature=0.7,
-                max_tokens=2000,
+                sampling=sampling,
+                phase="chat",
             )
-            message = response.choices[0].message
-            if not message.tool_calls:
-                final_reply = (message.content or "").strip()
+            tool_calls = result["tool_calls"]
+            if not tool_calls:
+                final_reply = result["content"]
                 break
 
-            messages.append(_assistant_message_payload(message))
-            for call in message.tool_calls:
-                arguments = _parse_arguments(call.function.arguments)
-                result = await route_tool_call(call.function.name, arguments)
+            messages.append(
+                {"role": "assistant", "content": result["content"] or "", "tool_calls": tool_calls}
+            )
+            for call in tool_calls:
+                arguments = _parse_arguments(call["function"]["arguments"])
+                call_result = await route_tool_call(call["function"]["name"], arguments)
                 tool_events.append(
                     {
-                        "name": call.function.name,
+                        "name": call["function"]["name"],
                         "arguments": arguments,
-                        "result_preview": result[:RESULT_PREVIEW_CHARS],
-                        "result": result,
+                        "result_preview": call_result[:RESULT_PREVIEW_CHARS],
+                        "result": call_result,
                     }
                 )
-                messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+                messages.append({"role": "tool", "tool_call_id": call["id"], "content": call_result})
         else:
             final_reply = (
                 "Не удалось завершить обработку за отведённое число шагов вызова инструментов. "
@@ -309,8 +303,15 @@ def _stream_error(started: float, reply: str, code: str) -> dict:
     }
 
 
-async def _run_agent_chat_stream(session_id: str, user_message: str, provider: str, started: float):
+async def _run_agent_chat_stream(
+    session_id: str,
+    user_message: str,
+    provider: str,
+    started: float,
+    sampling: llm.SamplingParams | None = None,
+):
     settings = get_settings()
+    sampling = sampling or llm.SamplingParams()
     messages: list[dict] = [{"role": "system", "content": _system_prompt()}]
     messages.extend(_load_history(session_id))
     messages.append({"role": "user", "content": user_message})
@@ -325,8 +326,7 @@ async def _run_agent_chat_stream(session_id: str, user_message: str, provider: s
             messages,
             provider=provider,
             tools=all_tools_schema(),
-            temperature=0.7,
-            max_tokens=2000,
+            sampling=sampling,
             phase="chat",
         ):
             if "done" in event:
@@ -388,6 +388,7 @@ async def _run_rag_chat_stream(
     options: rag_pipeline.RetrievalOptions | None,
     provider: str,
     started: float,
+    sampling: llm.SamplingParams | None = None,
 ):
     history = _load_history(session_id)
     previous_state = chat_store.load_task_state(session_id)
@@ -400,7 +401,7 @@ async def _run_rag_chat_stream(
     result: dict | None = None
     try:
         async for event in rag.build_rag_reply_stream(
-            user_message, strategy, history, options, state, provider=provider
+            user_message, strategy, history, options, state, provider=provider, sampling=sampling
         ):
             if "done" in event:
                 result = event["done"]
@@ -438,6 +439,7 @@ async def run_chat_stream(
     rag_strategy: str | None = None,
     rag_options: rag_pipeline.RetrievalOptions | None = None,
     llm_provider: str = llm.DEFAULT_PROVIDER,
+    sampling: llm.SamplingParams | None = None,
 ):
     """Стрим чата: события SSE (thinking / tool / reply) для веб-клиента."""
     started = time.monotonic()
@@ -445,6 +447,7 @@ async def run_chat_stream(
     user_message = (user_message or "").strip()
     rag_strategy = (rag_strategy or "").strip() or None
     provider = llm.normalize_provider(llm_provider)
+    sampling = sampling or llm.SamplingParams()
 
     if not user_message:
         yield _stream_error(started, "Пустое сообщение.", "empty")
@@ -475,12 +478,12 @@ async def run_chat_stream(
     try:
         if rag_strategy:
             async for event in _run_rag_chat_stream(
-                session_id, user_message, rag_strategy, rag_options, provider, started
+                session_id, user_message, rag_strategy, rag_options, provider, started, sampling
             ):
                 yield event
         else:
             async for event in _run_agent_chat_stream(
-                session_id, user_message, provider, started
+                session_id, user_message, provider, started, sampling
             ):
                 yield event
     except llm.LLMError as exc:
