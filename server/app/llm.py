@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass
 
@@ -23,8 +24,10 @@ from .config import get_settings
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PROVIDER = "deepseek"
 PROVIDERS = ("deepseek", "ollama")
+DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "deepseek").strip().lower()
+if DEFAULT_PROVIDER not in PROVIDERS:
+    DEFAULT_PROVIDER = "deepseek"
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 2000
 
