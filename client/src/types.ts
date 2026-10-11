@@ -1,5 +1,13 @@
 export type LlmProvider = 'deepseek' | 'ollama'
 
+/** Параметры генерации LLM (панель «Генерация LLM»). */
+export interface LlmSampling {
+  temperature: number
+  topP: number
+  topK: number
+  noThink: boolean
+}
+
 export interface Post {
   story_id: number
   title: string

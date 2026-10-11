@@ -32,7 +32,7 @@ SQLite (чаты): таблицы `chats` (заголовок = первый в�
 `chat_task_states`. `init_tables` (+ бэкфилл метаданных для старых сессий), `append_message`
 (создаёт чат и заголовок при первом сообщении), `load_history`, `list_chats` (свежие сверху,
 с `messages_count`), `get_chat`, `save_task_state`, `load_task_state`, `delete_chat` (удаляет чат
-целиком), `count_messages`. Использует ту же БД, что `db.py`.
+целиком), `delete_all_chats` (удаляет все чаты), `count_messages`. Использует ту же БД, что `db.py`.
 
 ### `parser.py`
 `fetch_best()` — парсит `/best` (8 постов, реклама отбрасывается), фильтр `max_post_age_hours`;
@@ -63,12 +63,14 @@ APScheduler: интервальный парсинг, `start_scheduler`/`stop_sc
 контекстных менеджеров — в одной задаче). **Не импортирует `tools`.**
 
 ### `llm.py`
-Провайдеры LLM (OpenAI-совместимые): `deepseek` и локальный `ollama` (`{ollama_base_url}/v1`).
-`normalize_provider`, `is_configured`, `chat_model`, `get_client(provider)`, `check_ollama_available`.
-`complete(...)` — один вызов (без стрима), возвращает `{content, reasoning, tool_calls}` и логирует в
-`llm_log`. `stream_complete(...)` — стрим (async-генератор дельт `reasoning`/`content` + финальный
-`done`), тоже логирует. `complete_messages`/`complete_text` — обёртки над `complete` (phase `aux`/`rag`).
-`LLMError`/`LLMNotConfigured`. Для DeepSeek без `DEEPSEEK_API_KEY` — ошибка `llm_not_configured`.
+Провайдеры LLM: **DeepSeek** (OpenAI SDK, `AsyncOpenAI`) и **Ollama** (нативный `/api/chat` через httpx —
+только там работают `top_k`, `think:false`, `num_predict`; DeepSeek API `top_k` не поддерживает).
+`normalize_provider`, `is_configured`, `chat_model`, `check_ollama_available`, `SamplingParams`
+(temperature/top_p/top_k/max_tokens/no_think). `complete(...)` — один вызов (без стрима), возвращает
+`{content, reasoning, tool_calls}` и логирует в `llm_log`. `stream_complete(...)` — стрим (async-генератор
+дельт `reasoning`/`content` + финальный `done`), тоже логирует. `complete_messages`/`complete_text` — обёртки
+над `complete` (phase `aux`/`rag`). `LLMError`/`LLMNotConfigured`. Для DeepSeek без `DEEPSEEK_API_KEY` —
+ошибка `llm_not_configured`. `ollama_chat_max_tokens` (config) — дефолтный `num_predict` для Ollama.
 
 ### `llm_log.py`
 Кольцевой буфер LLM-вызовов **в памяти** (последние 200, не персистится) для вкладки LOG.
@@ -79,7 +81,7 @@ APScheduler: интервальный парсинг, `start_scheduler`/`stop_sc
 `run_chat_stream(...)` — async-генератор SSE-событий (`thinking`/`tool`/`reply`) для веб-клиента.
 `_run_agent_chat_stream` (агентный цикл через `llm.stream_complete`), `_run_rag_chat_stream`
 (стрим финальной генерации RAG). `_run_rag_chat`, `route_tool_call`, `_system_prompt`, `all_tools_schema`,
-rate limit, `reset_session` (удаляет чат), `list_chats`, `load_session`. `llm_provider` (`deepseek`/`ollama`)
+rate limit, `reset_session` (удаляет чат), `clear_all_chats` (удаляет все чаты), `list_chats`, `load_session`. `llm_provider` (`deepseek`/`ollama`)
 выбирает модель для генерации ответа; служебные LLM-вызовы остаются на DeepSeek. `elapsed_ms` — полное
 время обработки. История — через `chat_store`. Возвращает `{reply, tool_calls, chunks?, debug?,
 task_state?, chat_id, chat_title, reasoning?, elapsed_ms?, error?}`.

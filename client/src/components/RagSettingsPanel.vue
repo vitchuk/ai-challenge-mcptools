@@ -2,13 +2,23 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '../api'
 import {
+  DEFAULT_LLM_SAMPLING,
   hasStoredRagRetrieval,
+  llmProvider,
+  llmSampling,
   ragRetrieval,
   ragStrategy,
+  setLlmSampling,
   setRagRetrieval,
   setRagStrategy,
 } from '../store'
-import type { RagRetrievalOptions, RagRetrievalStrategy, RagStrategyInfo } from '../types'
+import type {
+  LlmProvider,
+  LlmSampling,
+  RagRetrievalOptions,
+  RagRetrievalStrategy,
+  RagStrategyInfo,
+} from '../types'
 
 const strategies = ref<RagStrategyInfo[]>([])
 const retrievalStrategies = ref<{ id: string; description: string }[]>([])
@@ -16,6 +26,60 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 
 const retrieval = ref<RagRetrievalOptions>({ ...ragRetrieval.value })
+const sampling = ref<LlmSampling>({ ...llmSampling.value })
+
+function resetSampling() {
+  sampling.value = { ...DEFAULT_LLM_SAMPLING }
+}
+
+type PresetName = 'optimal' | 'creative'
+
+/** Пресеты зависят от выбранного провайдера (DeepSeek / Ollama). */
+const PRESETS: Record<LlmProvider, Record<PresetName, LlmSampling>> = {
+  deepseek: {
+    optimal: { temperature: 0.7, topP: 1.0, topK: 0, noThink: false },
+    creative: { temperature: 1.3, topP: 0.95, topK: 0, noThink: false },
+  },
+  ollama: {
+    optimal: { temperature: 0.7, topP: 0.8, topK: 20, noThink: true },
+    creative: { temperature: 1.2, topP: 0.95, topK: 40, noThink: false },
+  },
+}
+
+const presetButtons: { name: PresetName; label: string }[] = [
+  { name: 'optimal', label: 'Оптимальный' },
+  { name: 'creative', label: 'Креатив' },
+]
+
+function sameSampling(a: LlmSampling, b: LlmSampling): boolean {
+  return (
+    a.temperature === b.temperature &&
+    a.topP === b.topP &&
+    a.topK === b.topK &&
+    a.noThink === b.noThink
+  )
+}
+
+function detectPreset(provider: LlmProvider, value: LlmSampling): PresetName | null {
+  const table = PRESETS[provider]
+  for (const name of ['optimal', 'creative'] as PresetName[]) {
+    if (sameSampling(value, table[name])) return name
+  }
+  return null
+}
+
+const activePreset = computed<PresetName | null>(() => detectPreset(llmProvider.value, sampling.value))
+
+function applyPreset(name: PresetName) {
+  sampling.value = { ...PRESETS[llmProvider.value][name] }
+}
+
+// При смене модели сохраняем выбранный пресет: подменяем значения на версию для новой модели.
+// Кастомные значения (не совпадают ни с одним пресетом) остаются как есть.
+watch(llmProvider, (provider, previous) => {
+  const preset = detectPreset(previous, sampling.value)
+  if (preset) sampling.value = { ...PRESETS[provider][preset] }
+})
 
 const RETRIEVAL_LABELS: Record<RagRetrievalStrategy, string> = {
   baseline: 'Baseline',
@@ -130,6 +194,12 @@ watch(
   { deep: true },
 )
 
+watch(
+  sampling,
+  () => setLlmSampling({ ...sampling.value }),
+  { deep: true },
+)
+
 onMounted(load)
 </script>
 
@@ -149,6 +219,112 @@ onMounted(load)
         по базе знаний (pikabu-txt.md) и подмешивать их в вопрос к LLM. «Не использовать RAG» —
         чат работает как обычно (агент с тулами). Смена стратегии очищает историю диалога.
       </p>
+    </section>
+
+    <!-- Параметры генерации LLM -->
+    <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+      <h2 class="mb-1 text-sm font-semibold text-slate-200">Генерация LLM</h2>
+      <p class="mb-3 text-xs text-slate-400">
+        Применяется к ответам выбранной модели (DeepSeek или Ollama). Top_K поддерживает только
+        локальная Ollama — DeepSeek API его не принимает.
+      </p>
+
+      <div class="mb-3">
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="preset in presetButtons"
+            :key="preset.name"
+            type="button"
+            class="rounded-lg border px-3 py-1 text-xs transition"
+            :class="
+              activePreset === preset.name
+                ? 'border-indigo-500 bg-indigo-950/40 text-indigo-200'
+                : 'border-slate-700 text-slate-300 hover:border-indigo-500 hover:text-indigo-300'
+            "
+            @click="applyPreset(preset.name)"
+          >
+            {{ preset.label }}
+          </button>
+        </div>
+        <span class="mt-1 block text-[11px] text-slate-500">
+          Пресеты подстраиваются под выбранную модель: <span class="font-mono">{{ llmProvider }}</span>
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 gap-3">
+        <label class="block">
+          <span class="flex justify-between text-xs text-slate-400">
+            <span>Temperature</span>
+            <span class="font-mono text-slate-300">{{ sampling.temperature.toFixed(1) }}</span>
+          </span>
+          <input
+            v-model.number="sampling.temperature"
+            type="range"
+            min="0"
+            max="2"
+            step="0.1"
+            class="mt-1 w-full accent-indigo-500"
+          />
+          <span class="mt-0.5 block text-[11px] text-slate-500">
+            0 — детерминированно, выше — разнообразнее
+          </span>
+        </label>
+
+        <label class="block">
+          <span class="flex justify-between text-xs text-slate-400">
+            <span>Top_P</span>
+            <span class="font-mono text-slate-300">{{ sampling.topP.toFixed(2) }}</span>
+          </span>
+          <input
+            v-model.number="sampling.topP"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            class="mt-1 w-full accent-indigo-500"
+          />
+          <span class="mt-0.5 block text-[11px] text-slate-500">
+            1.0 — без ограничения; меньше — выбор только из верхних вероятностей
+          </span>
+        </label>
+
+        <label class="block">
+          <span class="text-xs text-slate-400">Top_K (только Ollama)</span>
+          <input
+            v-model.number="sampling.topK"
+            type="number"
+            min="0"
+            max="200"
+            step="1"
+            class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-100 outline-none focus:border-indigo-500"
+          />
+          <span class="mt-0.5 block text-[11px] text-slate-500">
+            0 — выключено (дефолт модели). DeepSeek API не поддерживает top_k
+          </span>
+        </label>
+
+        <label class="flex items-start gap-2 text-xs text-slate-400">
+          <input
+            v-model="sampling.noThink"
+            type="checkbox"
+            class="mt-0.5 h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 accent-indigo-500"
+          />
+          <span>
+            Отключить размышления (Ollama)
+            <span class="mt-0.5 block text-[11px] text-slate-500">
+              экономит токены; блок «Размышления» в чате будет пуст
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <button
+        type="button"
+        class="mt-3 rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-300 transition hover:border-indigo-500 hover:text-indigo-300"
+        @click="resetSampling"
+      >
+        Сбросить к значениям по умолчанию
+      </button>
     </section>
 
     <!-- Выбор стратегии чанкинга -->

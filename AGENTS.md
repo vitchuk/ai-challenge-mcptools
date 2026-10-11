@@ -13,6 +13,10 @@
 - Node.js 18+. Для скриншотов нужен системный Chrome.
 
 ```powershell
+# оба сразу (из корня) — один терминал, префиксы [server]/[client]
+.\.venv\Scripts\python.exe scripts\dev.py
+# или двойной клик по start.bat (то же + chcp 65001)
+
 # бэкенд (из server/)
 ..\.venv\Scripts\python.exe -m app.main
 ..\.venv\Scripts\python.exe -m pip install -r requirements.txt

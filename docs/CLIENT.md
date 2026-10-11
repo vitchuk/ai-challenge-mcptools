@@ -13,7 +13,7 @@
 | `views/ChatView.vue` | Вкладка «Чат»: три колонки — список чатов, диалог (RAG-индикатор, память задачи, стрим «размышлений», время ответа, инпут), панель RAG |
 | `views/McpView.vue` | Вкладка «MCP»: две колонки — слева посты/статус парсинга, справа настройки (статус, конфиг, парсинг, саммари, серверы, тулы) |
 | `views/LogView.vue` | Вкладка «LOG»: лог LLM-вызовов (`GET /api/llm-log`, поллинг 3 с) — сворачиваемые блоки запроса (system/user/assistant/tool) и ответа (размышления/тулы/ответ) |
-| `store.ts` | Общий стор вкладок (без Pinia): `posts`, `articlesCount`, `dataVersion`, `summaryVersion`, `chats`, `currentChatId`, `ragStrategy`, `ragRetrieval`, `llmProvider` |
+| `store.ts` | Общий стор вкладок (без Pinia): `posts`, `articlesCount`, `dataVersion`, `summaryVersion`, `chats`, `currentChatId`, `ragStrategy`, `ragRetrieval`, `llmProvider`, `llmSampling` |
 | `api.ts` | REST-клиент; `getSessionId()` (UUID в localStorage), все запросы с `X-Session-Id`; `sendChatStream` (парсер SSE), `getLlmLog`/`clearLlmLog` |
 | `types.ts` | Типы API и UI (`ChatResponse`, `TaskState`, `RagChunkHit`, `AppStatus`, …) |
 | `citations.ts` | `parseRagCitations(reply)` (`> [id] quote`), `splitHighlighted(text, quotes)` |
@@ -24,19 +24,19 @@
 | Компонент | Вход | Рисует |
 | --- | --- | --- |
 | `PostCard.vue` | `post: Post` | Карточка статьи (заголовок-ссылка, картинка/видео, мета) |
-| `ChatTabs.vue` | `chats`, `currentChatId`, `busy` | Вертикальный список чатов: заголовок, число сообщений, крестик удаления, «+ Новый чат» |
+| `ChatTabs.vue` | `chats`, `currentChatId`, `busy` | Вертикальный список чатов: заголовок, число сообщений, крестик удаления, «+ Новый чат», «Удалить все чаты» |
 | `AgentReply.vue` | `text`, `posts` | Ответ ассистента: цитаты `> [id]`, markdown-ссылки → встроенные карточки постов |
 | `ToolCallList.vue` | `calls: ToolCallEvent[]` | Свёрнутые чипы вызовов тулов |
 | `RagSources.vue` | `chunks`, `citations` | Блок «Источники RAG (N)»; при 0 — «фрагменты не найдены» |
 | `RagPipelineInfo.vue` | `debug` | Отладка retrieval: original/rewritten query, воронка фильтров |
-| `RagSettingsPanel.vue` | — | Правая панель: стратегия чанкинга, стратегия поиска, параметры, детали индекса |
+| `RagSettingsPanel.vue` | — | Правая панель: генерация LLM (пресеты Оптимальный/Креатив, сохраняются при смене модели; temperature/top_p/top_k/no_think), стратегия чанкинга, стратегия поиска, параметры, детали индекса |
 | `TaskStatePanel.vue` | `state: TaskState` | Память задачи: цель / уточнения / ограничения |
 
 ## Потоки
 
 ### Отправка сообщения (`ChatView.send`)
-`api.sendChatStream(text, chatId, {onThinking, onTool}, ragStrategy || undefined, ragStrategy ? ragRetrieval : undefined, llmProvider)` →
-`POST /api/chat/stream` (SSE) с `{message, session_id, rag_strategy, rag_options, llm_provider}`. В `rag_options`
+`api.sendChatStream(text, chatId, {onThinking, onTool}, ragStrategy || undefined, ragStrategy ? ragRetrieval : undefined, llmProvider, llmSampling)` →
+`POST /api/chat/stream` (SSE) с `{message, session_id, rag_strategy, rag_options, llm_provider, sampling}`. В `rag_options`
 `reranker_threshold` уходит только при `reranker_threshold_enabled`. События стрима: `thinking` (дельты
 размышлений — выводятся в раскрывающийся блок «Размышления» под вейтером в рантайме), `tool` (вызов тула),
 `reply` (финальный ответ: `reply`, `tool_calls`, `chunks`, `debug`, `task_state`, `reasoning`, `elapsed_ms`,

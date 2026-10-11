@@ -100,6 +100,7 @@ class Settings:
     # Ollama (локальная LLM, OpenAI-совместимый API)
     ollama_base_url: str
     ollama_chat_model: str
+    ollama_chat_max_tokens: int
 
     # Внешние MCP-серверы
     allowed_screenshot_hosts: list[str]
@@ -199,6 +200,9 @@ def get_settings() -> Settings:
         ollama_chat_model=os.getenv(
             "OLLAMA_CHAT_MODEL", str(raw.get("ollama_chat_model", "qwen3:1.7b"))
         ).strip(),
+        ollama_chat_max_tokens=int(
+            os.getenv("OLLAMA_CHAT_MAX_TOKENS", str(raw.get("ollama_chat_max_tokens", 1000)))
+        ),
         allowed_screenshot_hosts=list(raw.get("allowed_screenshot_hosts", ["pikabu.ru"])),
         external_mcp_servers=list(raw.get("external_mcp_servers", [])),
         database_path=_resolve_path(str(raw.get("database_path", "server/data/pikabu.db"))),

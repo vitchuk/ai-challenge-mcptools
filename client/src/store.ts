@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { ChatInfo, LlmProvider, Post, RagRetrievalOptions } from './types'
+import type { ChatInfo, LlmProvider, LlmSampling, Post, RagRetrievalOptions } from './types'
 
 /** Общий стор для связи вкладок: счётчик статей и версия данных (bump при очистке/парсинге). */
 export const articlesCount = ref(0)
@@ -122,4 +122,36 @@ export const llmProvider = ref<LlmProvider>(
 export function setLlmProvider(provider: LlmProvider) {
   llmProvider.value = provider
   localStorage.setItem(LLM_PROVIDER_KEY, provider)
+}
+
+// --- Параметры генерации LLM ---
+
+const LLM_SAMPLING_KEY = 'pikabu-mcp-llm-sampling'
+
+/** Значения по умолчанию: temperature 0.7, top_p 1.0, top_k выключен, размышления включены. */
+export const DEFAULT_LLM_SAMPLING: LlmSampling = {
+  temperature: 0.7,
+  topP: 1.0,
+  topK: 0,
+  noThink: false,
+}
+
+function loadLlmSampling(): LlmSampling {
+  const raw = localStorage.getItem(LLM_SAMPLING_KEY)
+  if (raw) {
+    try {
+      return { ...DEFAULT_LLM_SAMPLING, ...(JSON.parse(raw) as Partial<LlmSampling>) }
+    } catch {
+      // повреждённое значение — значения по умолчанию
+    }
+  }
+  return { ...DEFAULT_LLM_SAMPLING }
+}
+
+/** Параметры генерации (temperature / top_p / top_k / отключение размышлений). */
+export const llmSampling = ref<LlmSampling>(loadLlmSampling())
+
+export function setLlmSampling(value: LlmSampling) {
+  llmSampling.value = { ...value }
+  localStorage.setItem(LLM_SAMPLING_KEY, JSON.stringify(value))
 }

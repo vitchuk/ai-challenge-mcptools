@@ -632,6 +632,7 @@ async def build_rag_reply(
     options: rag_pipeline.RetrievalOptions | None = None,
     task_state_data: dict | None = None,
     provider: str = llm.DEFAULT_PROVIDER,
+    sampling: llm.SamplingParams | None = None,
 ) -> dict:
     """RAG-схема: вопрос → поиск релевантных чанков → объединение с вопросом → LLM → ответ.
 
@@ -645,8 +646,8 @@ async def build_rag_reply(
     )
     if messages is None:
         return {"reply": _empty_hits_reply(debug), "chunks": [], "debug": debug}
-    reply = await llm.complete_messages(messages, provider=provider, phase="rag")
-    return {"reply": reply, "chunks": chunks, "debug": debug}
+    result = await llm.complete(messages, provider=provider, sampling=sampling, phase="rag")
+    return {"reply": result["content"], "chunks": chunks, "debug": debug}
 
 
 async def build_rag_reply_stream(
@@ -656,6 +657,7 @@ async def build_rag_reply_stream(
     options: rag_pipeline.RetrievalOptions | None = None,
     task_state_data: dict | None = None,
     provider: str = llm.DEFAULT_PROVIDER,
+    sampling: llm.SamplingParams | None = None,
 ):
     """Стрим-вариант `build_rag_reply`: дельты размышлений + финальный результат.
 
@@ -675,7 +677,9 @@ async def build_rag_reply_stream(
             }
         }
         return
-    async for event in llm.stream_complete(messages, provider=provider, phase="rag"):
+    async for event in llm.stream_complete(
+        messages, provider=provider, sampling=sampling, phase="rag"
+    ):
         if "done" in event:
             result = event["done"]
             yield {

@@ -31,6 +31,7 @@
 | POST | `/api/chat/reset` | `{session_id?}` | `{ok, session_id}` (удаляет чат целиком) |
 | GET | `/api/chats` | — | `{count, chats[]}` (заголовок = первый вопрос, свежие сверху) |
 | POST | `/api/chats/{session_id}/delete` | — | `{ok, session_id}` (идемпотентно) |
+| POST | `/api/chats/delete-all` | — | `{ok, deleted}` — удаляет все сохранённые чаты |
 | GET | `/api/rag/strategies` | — | `{strategies[], retrieval_strategies[]}` |
 | GET | `/api/rag/strategies/{strategy}` | `limit` (1..500, по умолч. 50) | чанки индекса без векторов |
 
@@ -46,6 +47,12 @@
   "message": "Что известно о наклоне земной оси?",
   "session_id": "uuid",
   "llm_provider": "deepseek",
+  "sampling": {
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": 20,
+    "no_think": false
+  },
   "rag_strategy": "fixed",
   "rag_options": {
     "strategy": "query-rewrite-rerank",
@@ -61,6 +68,9 @@
 
 - `llm_provider` — `deepseek` (облако, по умолчанию) или `ollama` (локальная модель); влияет на генерацию
   ответа (агентский и RAG-чат). Служебные LLM-вызовы (rewrite/rerank, память задачи, саммари) — на DeepSeek.
+- `sampling` — параметры генерации (все поля опциональны): `temperature` (0..2), `top_p` (0..1),
+  `top_k` (1..200, **только Ollama** — DeepSeek API не поддерживает), `no_think` (отключить размышления,
+  только Ollama). Применяются к генерации ответа; `None` — провайдерские дефолты.
 - `rag_strategy` — id **стратегии чанкинга** (`fixed`/`paragraph`) или `null` → агентский режим (без RAG).
 - `rag_options` — **стратегия поиска** (`baseline` / `query-rewrite` / `similarity-filter` /
   `query-rewrite-rerank`) и её параметры; `null` — baseline-поведение.
