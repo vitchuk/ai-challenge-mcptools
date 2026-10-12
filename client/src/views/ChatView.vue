@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { api } from '../api'
+import { api, generateUuid } from '../api'
 import { parseRagCitations } from '../citations'
 import {
   bumpSummaryVersion,
@@ -201,7 +201,7 @@ async function send() {
 
   // чат создаётся лениво: id генерируется при первом сообщении
   const isNewChat = !currentChatId.value
-  const chatId = currentChatId.value ?? crypto.randomUUID()
+  const chatId = currentChatId.value ?? generateUuid()
   if (isNewChat) setCurrentChatId(chatId)
   addMessage({ role: 'user', kind: 'text', text })
 
