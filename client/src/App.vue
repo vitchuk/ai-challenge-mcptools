@@ -4,7 +4,7 @@ import ChatView from './views/ChatView.vue'
 import McpView from './views/McpView.vue'
 import LogView from './views/LogView.vue'
 import { api } from './api'
-import { llmProvider, setLlmProvider } from './store'
+import { llmProvider, openMenu, setLlmProvider } from './store'
 import type { AppStatus, LlmProvider } from './types'
 
 type Tab = 'chat' | 'mcp' | 'log'
@@ -52,28 +52,65 @@ function onProviderChange(event: Event) {
 
 <template>
   <div class="flex h-full flex-col bg-slate-950 text-slate-100">
-    <header class="flex items-center gap-6 border-b border-slate-800 px-4 py-3">
-      <div>
-        <h1 class="text-base font-semibold">Ai Playground</h1>
-        <select
-          class="mt-0.5 max-w-[280px] rounded-lg border border-slate-700 bg-slate-900 px-2 py-0.5 text-xs text-slate-300"
-          :value="llmProvider"
-          @change="onProviderChange"
+    <header class="border-b border-slate-800 px-3 py-2 md:px-4 md:py-3">
+      <div class="flex items-center gap-2 md:gap-6">
+        <button
+          v-if="tab === 'chat'"
+          type="button"
+          class="rounded-lg border border-slate-700 px-2.5 py-1.5 text-slate-300 transition hover:border-indigo-500 hover:text-indigo-300 md:hidden"
+          aria-label="Меню чатов"
+          @click="openMenu('chats')"
         >
-          <option value="deepseek" :disabled="!providerAvailable('deepseek')">
-            {{ providerLabel('deepseek') }}
-          </option>
-          <option value="ollama" :disabled="!providerAvailable('ollama')">
-            {{ providerLabel('ollama') }}
-          </option>
-        </select>
+          ☰
+        </button>
+        <div class="min-w-0 flex-1 md:flex-none">
+          <h1 class="text-base font-semibold">Ai Playground</h1>
+          <select
+            class="mt-0.5 w-full max-w-[220px] rounded-lg border border-slate-700 bg-slate-900 px-2 py-0.5 text-xs text-slate-300 md:max-w-[280px]"
+            :value="llmProvider"
+            @change="onProviderChange"
+          >
+            <option value="deepseek" :disabled="!providerAvailable('deepseek')">
+              {{ providerLabel('deepseek') }}
+            </option>
+            <option value="ollama" :disabled="!providerAvailable('ollama')">
+              {{ providerLabel('ollama') }}
+            </option>
+          </select>
+        </div>
+        <button
+          v-if="tab === 'chat'"
+          type="button"
+          class="shrink-0 rounded-lg border border-slate-700 px-2.5 py-1.5 text-slate-300 transition hover:border-indigo-500 hover:text-indigo-300 md:hidden"
+          aria-label="Настройки чата"
+          @click="openMenu('settings')"
+        >
+          ⚙
+        </button>
+        <nav class="hidden gap-1 md:ml-auto md:flex">
+          <button
+            v-for="item in tabs"
+            :key="item.id"
+            type="button"
+            class="rounded-lg px-4 py-1.5 text-sm transition"
+            :class="
+              tab === item.id
+                ? 'bg-indigo-600 text-white'
+                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+            "
+            @click="tab = item.id"
+          >
+            {{ item.label }}
+          </button>
+        </nav>
       </div>
-      <nav class="flex gap-1">
+
+      <nav class="mt-2 flex gap-1 md:hidden">
         <button
           v-for="item in tabs"
           :key="item.id"
           type="button"
-          class="rounded-lg px-4 py-1.5 text-sm transition"
+          class="flex-1 rounded-lg px-3 py-1.5 text-sm transition"
           :class="
             tab === item.id
               ? 'bg-indigo-600 text-white'
