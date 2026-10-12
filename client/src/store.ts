@@ -156,6 +156,17 @@ export function setLlmSampling(value: LlmSampling) {
   localStorage.setItem(LLM_SAMPLING_KEY, JSON.stringify(value))
 }
 
+// --- Активная вкладка приложения ---
+
+export type ViewTab = 'chat' | 'mcp' | 'log'
+
+/** Текущая вкладка («Чат» / «MCP» / «LOG»); в store — чтобы меню могло переключать на «Чат». */
+export const activeTab = ref<ViewTab>('chat')
+
+export function setActiveTab(tab: ViewTab) {
+  activeTab.value = tab
+}
+
 // --- Мобильное меню (drawer) ---
 
 export type MenuTab = 'chats' | 'settings'

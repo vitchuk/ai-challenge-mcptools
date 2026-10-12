@@ -48,6 +48,7 @@ const streamThinking = ref('')
 const listEl = ref<HTMLElement | null>(null)
 const postStore = ref<Record<string, Post>>({})
 const taskState = ref<TaskState | null>(null)
+const suggestionsOpen = ref(false)
 let nextId = 1
 
 const suggestions = [
@@ -255,6 +256,7 @@ async function send() {
 
 function useSuggestion(text: string) {
   input.value = text
+  suggestionsOpen.value = false
   void send()
 }
 
@@ -313,7 +315,7 @@ onMounted(async () => {
           >
             RAG включён: индекс <span class="font-mono text-indigo-100">{{ ragStrategy }}</span>, поиск
             <span class="text-indigo-100">{{ retrievalLabel }}</span> — ответы строятся по найденным чанкам.
-            Сменить стратегию можно в настройках ⚙.
+            Сменить стратегию можно в меню ☰ → Настройки.
           </div>
 
           <!-- Память задачи (цель / уточнения / ограничения) -->
@@ -411,7 +413,14 @@ onMounted(async () => {
 
       <div class="border-t border-slate-800 bg-slate-950/80 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3">
         <div class="mx-auto w-full max-w-3xl">
-          <div class="mb-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="mb-2 rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-400 transition hover:border-indigo-500 hover:text-indigo-300 md:hidden"
+            @click="suggestionsOpen = !suggestionsOpen"
+          >
+            {{ suggestionsOpen ? 'Скрыть подсказки ▴' : 'Подсказки ▾' }}
+          </button>
+          <div :class="suggestionsOpen ? 'mb-2 flex flex-wrap gap-2' : 'mb-2 hidden flex-wrap gap-2 md:flex'">
             <button
               v-for="suggestion in suggestions"
               :key="suggestion"

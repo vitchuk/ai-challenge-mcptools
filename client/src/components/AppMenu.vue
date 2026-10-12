@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted } from 'vue'
 import ChatTabs from './ChatTabs.vue'
 import RagSettingsPanel from './RagSettingsPanel.vue'
-import { chats, closeMenu, currentChatId, menuOpen, menuTab, setMenuTab } from '../store'
+import { chats, closeMenu, currentChatId, menuOpen, menuTab, setActiveTab, setMenuTab } from '../store'
 
 withDefaults(defineProps<{ busy?: boolean }>(), { busy: false })
 
@@ -15,11 +15,13 @@ const emit = defineEmits<{
 
 function onSelect(id: string) {
   emit('select', id)
+  setActiveTab('chat')
   closeMenu()
 }
 
 function onNew() {
   emit('new')
+  setActiveTab('chat')
   closeMenu()
 }
 

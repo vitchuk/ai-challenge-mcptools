@@ -4,12 +4,10 @@ import ChatView from './views/ChatView.vue'
 import McpView from './views/McpView.vue'
 import LogView from './views/LogView.vue'
 import { api } from './api'
-import { llmProvider, openMenu, setLlmProvider } from './store'
+import { activeTab, llmProvider, openMenu, setActiveTab, setLlmProvider } from './store'
 import type { AppStatus, LlmProvider } from './types'
 
 type Tab = 'chat' | 'mcp' | 'log'
-
-const tab = ref<Tab>('chat')
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'chat', label: 'Чат' },
@@ -55,7 +53,6 @@ function onProviderChange(event: Event) {
     <header class="border-b border-slate-800 px-3 py-2 md:px-4 md:py-3">
       <div class="flex items-center gap-2 md:gap-6">
         <button
-          v-if="tab === 'chat'"
           type="button"
           class="rounded-lg border border-slate-700 px-2.5 py-1.5 text-slate-300 transition hover:border-indigo-500 hover:text-indigo-300 md:hidden"
           aria-label="Меню чатов"
@@ -78,15 +75,6 @@ function onProviderChange(event: Event) {
             </option>
           </select>
         </div>
-        <button
-          v-if="tab === 'chat'"
-          type="button"
-          class="shrink-0 rounded-lg border border-slate-700 px-2.5 py-1.5 text-slate-300 transition hover:border-indigo-500 hover:text-indigo-300 md:hidden"
-          aria-label="Настройки чата"
-          @click="openMenu('settings')"
-        >
-          ⚙
-        </button>
         <nav class="hidden gap-1 md:ml-auto md:flex">
           <button
             v-for="item in tabs"
@@ -94,11 +82,11 @@ function onProviderChange(event: Event) {
             type="button"
             class="rounded-lg px-4 py-1.5 text-sm transition"
             :class="
-              tab === item.id
+              activeTab === item.id
                 ? 'bg-indigo-600 text-white'
                 : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
             "
-            @click="tab = item.id"
+            @click="setActiveTab(item.id)"
           >
             {{ item.label }}
           </button>
@@ -112,11 +100,11 @@ function onProviderChange(event: Event) {
           type="button"
           class="flex-1 rounded-lg px-3 py-1.5 text-sm transition"
           :class="
-            tab === item.id
+            activeTab === item.id
               ? 'bg-indigo-600 text-white'
               : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
           "
-          @click="tab = item.id"
+          @click="setActiveTab(item.id)"
         >
           {{ item.label }}
         </button>
@@ -124,9 +112,9 @@ function onProviderChange(event: Event) {
     </header>
 
     <main class="min-h-0 flex-1">
-      <ChatView v-show="tab === 'chat'" />
-      <McpView v-show="tab === 'mcp'" />
-      <LogView v-show="tab === 'log'" :active="tab === 'log'" />
+      <ChatView v-show="activeTab === 'chat'" />
+      <McpView v-show="activeTab === 'mcp'" />
+      <LogView v-show="activeTab === 'log'" :active="activeTab === 'log'" />
     </main>
   </div>
 </template>
