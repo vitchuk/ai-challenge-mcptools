@@ -155,3 +155,36 @@ export function setLlmSampling(value: LlmSampling) {
   llmSampling.value = { ...value }
   localStorage.setItem(LLM_SAMPLING_KEY, JSON.stringify(value))
 }
+
+// --- Активная вкладка приложения ---
+
+export type ViewTab = 'chat' | 'mcp' | 'log'
+
+/** Текущая вкладка («Чат» / «MCP» / «LOG»); в store — чтобы меню могло переключать на «Чат». */
+export const activeTab = ref<ViewTab>('chat')
+
+export function setActiveTab(tab: ViewTab) {
+  activeTab.value = tab
+}
+
+// --- Мобильное меню (drawer) ---
+
+export type MenuTab = 'chats' | 'settings'
+
+/** Открыто ли выезжающее меню (drawer). На десктопе не используется (скрыто через md:hidden). */
+export const menuOpen = ref(false)
+/** Активная вкладка меню: список чатов или настройки. */
+export const menuTab = ref<MenuTab>('chats')
+
+export function openMenu(tab: MenuTab = 'chats') {
+  menuTab.value = tab
+  menuOpen.value = true
+}
+
+export function setMenuTab(tab: MenuTab) {
+  menuTab.value = tab
+}
+
+export function closeMenu() {
+  menuOpen.value = false
+}

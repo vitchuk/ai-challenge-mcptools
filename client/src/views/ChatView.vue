@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { api } from '../api'
+import { api, generateUuid } from '../api'
 import { parseRagCitations } from '../citations'
 import {
   bumpSummaryVersion,
@@ -24,6 +24,7 @@ import RagPipelineInfo from '../components/RagPipelineInfo.vue'
 import RagSettingsPanel from '../components/RagSettingsPanel.vue'
 import TaskStatePanel from '../components/TaskStatePanel.vue'
 import ChatTabs from '../components/ChatTabs.vue'
+import AppMenu from '../components/AppMenu.vue'
 
 const RETRIEVAL_LABELS: Record<string, string> = {
   baseline: 'Baseline',
@@ -47,6 +48,7 @@ const streamThinking = ref('')
 const listEl = ref<HTMLElement | null>(null)
 const postStore = ref<Record<string, Post>>({})
 const taskState = ref<TaskState | null>(null)
+const suggestionsOpen = ref(false)
 let nextId = 1
 
 const suggestions = [
@@ -201,7 +203,7 @@ async function send() {
 
   // чат создаётся лениво: id генерируется при первом сообщении
   const isNewChat = !currentChatId.value
-  const chatId = currentChatId.value ?? crypto.randomUUID()
+  const chatId = currentChatId.value ?? generateUuid()
   if (isNewChat) setCurrentChatId(chatId)
   addMessage({ role: 'user', kind: 'text', text })
 
@@ -254,6 +256,7 @@ async function send() {
 
 function useSuggestion(text: string) {
   input.value = text
+  suggestionsOpen.value = false
   void send()
 }
 
@@ -288,8 +291,8 @@ onMounted(async () => {
 
 <template>
   <div class="flex h-full">
-    <!-- Левая колонка: список чатов -->
-    <aside class="h-full w-60 shrink-0 border-r border-slate-800">
+    <!-- Левая колонка: список чатов (на мобильном — в меню ☰) -->
+    <aside class="hidden h-full w-60 shrink-0 border-r border-slate-800 md:block">
       <ChatTabs
         :chats="chats"
         :current-chat-id="currentChatId"
@@ -312,7 +315,7 @@ onMounted(async () => {
           >
             RAG включён: индекс <span class="font-mono text-indigo-100">{{ ragStrategy }}</span>, поиск
             <span class="text-indigo-100">{{ retrievalLabel }}</span> — ответы строятся по найденным чанкам.
-            Сменить стратегию можно на панели справа.
+            Сменить стратегию можно в меню ☰ → Настройки.
           </div>
 
           <!-- Память задачи (цель / уточнения / ограничения) -->
@@ -323,7 +326,7 @@ onMounted(async () => {
             v-if="!currentChatId && !messages.length"
             class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center"
           >
-            <p class="text-sm text-slate-300">Выберите чат слева или начните новый</p>
+            <p class="text-sm text-slate-300">Выберите чат в меню ☰ или начните новый</p>
             <p class="mt-2 text-xs text-slate-500">Первое отправленное сообщение создаст новый чат.</p>
           </div>
 
@@ -408,9 +411,16 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div class="border-t border-slate-800 bg-slate-950/80 p-3">
+      <div class="border-t border-slate-800 bg-slate-950/80 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3">
         <div class="mx-auto w-full max-w-3xl">
-          <div class="mb-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="mb-2 rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-400 transition hover:border-indigo-500 hover:text-indigo-300 md:hidden"
+            @click="suggestionsOpen = !suggestionsOpen"
+          >
+            {{ suggestionsOpen ? 'Скрыть подсказки ▴' : 'Подсказки ▾' }}
+          </button>
+          <div :class="suggestionsOpen ? 'mb-2 flex flex-wrap gap-2' : 'mb-2 hidden flex-wrap gap-2 md:flex'">
             <button
               v-for="suggestion in suggestions"
               :key="suggestion"
@@ -428,7 +438,7 @@ onMounted(async () => {
               rows="2"
               :disabled="busy"
               :placeholder="inputPlaceholder"
-              class="flex-1 resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-indigo-500 disabled:opacity-50"
+              class="flex-1 resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base text-slate-100 outline-none placeholder:text-slate-500 focus:border-indigo-500 disabled:opacity-50 md:text-sm"
               @keydown="onKeydown"
             />
             <button
@@ -444,9 +454,18 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Сайтбар с настройками RAG (1/3 ширины окна) -->
-    <aside class="h-full w-1/3 shrink-0 overflow-y-auto bg-slate-950/40 p-4">
+    <!-- Сайтбар с настройками RAG (1/3 ширины окна; на мобильном — в меню ⚙) -->
+    <aside class="hidden h-full w-1/3 shrink-0 overflow-y-auto bg-slate-950/40 p-4 md:block">
       <RagSettingsPanel />
     </aside>
+
+    <!-- Мобильное меню (drawer): чаты + настройки -->
+    <AppMenu
+      :busy="busy"
+      @select="selectChat"
+      @delete="deleteChat"
+      @delete-all="deleteAllChats"
+      @new="newChat"
+    />
   </div>
 </template>

@@ -22,10 +22,33 @@ import type {
 
 const SESSION_KEY = 'pikabu-mcp-session-id'
 
+/**
+ * UUID v4 с фолбэком для незащищённого контекста.
+ * `crypto.randomUUID` доступен только на HTTPS/localhost; при доступе по обычному
+ * HTTP с IP (например, http://192.168.100.133:8000) его нет — используем
+ * `crypto.getRandomValues`, который доступен всегда.
+ */
+export function generateUuid(): string {
+  const cryptoObj = (globalThis as { crypto?: Crypto }).crypto
+  if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
+    return cryptoObj.randomUUID()
+  }
+  const bytes = new Uint8Array(16)
+  if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
+    cryptoObj.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 export function getSessionId(): string {
   let id = localStorage.getItem(SESSION_KEY)
   if (!id) {
-    id = crypto.randomUUID()
+    id = generateUuid()
     localStorage.setItem(SESSION_KEY, id)
   }
   return id

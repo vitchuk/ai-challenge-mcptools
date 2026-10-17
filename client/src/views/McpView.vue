@@ -238,9 +238,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full">
+  <div class="flex h-full flex-col overflow-y-auto md:flex-row md:overflow-hidden">
     <!-- Левая колонка: спаршенные посты -->
-    <div class="h-full w-3/5 min-w-0 overflow-y-auto border-r border-slate-800 p-4">
+    <div class="w-full min-w-0 border-slate-800 p-4 md:h-full md:w-3/5 md:overflow-y-auto md:border-r">
       <div class="mx-auto w-full max-w-3xl">
         <div v-if="!posts.length" class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center">
           <p class="text-sm text-slate-300">Еще не спарсили</p>
@@ -252,7 +252,7 @@ onUnmounted(() => {
             До следующего парсинга: <span class="font-mono text-slate-200">{{ countdownText }}</span>
           </p>
           <p v-else class="mt-3 text-sm text-amber-300">
-            Парсинг остановлен — запустите его в панели справа.
+            Парсинг остановлен — запустите его в панели настроек.
           </p>
           <p v-if="parseError" class="mt-2 text-xs text-red-300">Ошибка парсинга: {{ parseError }}</p>
         </div>
@@ -267,7 +267,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Правая колонка: настройки MCP -->
-    <div class="h-full w-2/5 shrink-0 space-y-4 overflow-y-auto bg-slate-950/40 p-4">
+    <div class="w-full shrink-0 space-y-4 border-t border-slate-800 bg-slate-950/40 p-4 md:h-full md:w-2/5 md:overflow-y-auto md:border-t-0">
       <div v-if="error" class="rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200">
         {{ error }}
       </div>
