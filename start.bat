@@ -1,6 +1,8 @@
 @echo off
 cd /d "%~dp0"
 
+REM Файл запуска приложения
+
 if not exist ".venv\Scripts\python.exe" (
   echo Virtualenv not found: .venv\Scripts\python.exe
   echo Create it and install dependencies:
